@@ -10,7 +10,7 @@ La división sigue la frontera de la arquitectura: **A es dueño de lo que actú
 `centinela_svc/domain.py` define el formato de `Proposal` y el `MENU`. Cualquier cambio a este archivo se acuerda entre los dos antes de hacer push.
 Menú del caso 2: `matar_proceso`, `revocar_clave`, `bloquear_ip`, `cerrar_sesiones`, más el carril `requiere_aprobacion`.
 
-## Persona A — Capa de control y laboratorio
+## Persona A — Christian (@ChristianVeneko) — Capa de control y laboratorio
 
 Archivos: `centinela_svc/executor.py`, `centinela_svc/audit.py`, `victim/**`, `render.yaml`
 
@@ -20,7 +20,7 @@ Archivos: `centinela_svc/executor.py`, `centinela_svc/audit.py`, `victim/**`, `r
 4. **Credencial mínima:** un rol de Postgres para el ejecutor con `GRANT` solo sobre `api_keys.status`, `ip_blocklist` y `sessions`. Nunca sobre `users`. Verificar que `permission denied` llegue a la bitácora.
 5. **Ejecutor del caso 2:** implementar las acciones nuevas del menú y la cola de aprobación humana para las acciones de alto riesgo.
 
-## Persona B — IA, panel y demo
+## Persona B — Maikol (@maikCyphlock) — IA, panel y demo
 
 Archivos: `centinela_svc/reasoner.py`, `centinela_svc/monitor.py`, `centinela_svc/panel.html`, `centinela_svc/app.py`, `attack.py`
 
