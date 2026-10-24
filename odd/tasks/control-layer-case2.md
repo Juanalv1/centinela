@@ -28,7 +28,7 @@ Decisions / assumptions (to confirm with the team):
 | T4 | S4 | inline | done | a6ca5fe, 47b8c83 |
 | T5 | S5, S6 | inline | done | 47b8c83 |
 | T6 | all | inline | done (render.yaml, README, REPARTO) | 82e3f9c |
-| T7 | all | delegated verifier | pending | |
+| T7 | all | delegated verifier | done: 2 blockers fixed in one correction batch, recheck green | 5917e35 |
 
 Route evidence: no Writer trigger (units share one contract and depend on each other). Verification trigger fires: T4/T5 touch credentials and guards (item 2), T6 touches deploy config (item 5).
 
@@ -41,3 +41,5 @@ Route evidence: no Writer trigger (units share one contract and depend on each o
 - L5 (2026-10-24) User, verbatim: "mira, pullea main, y traete los cambios porfa ahi haces el ajuste necesario porfa". `main` had 4 new commits: English contract, layered executor with `managed` allowlist and approval queue, reasoner/panel/app updates. Rebased T2 and T3/T4 onto `main`, dropped my T1 and approval queue (superseded), rewrote T5 on the upstream executor. Upstream tests adapted: `suspend_user` value `"alice"` -> `"2"`; rule 7 now asserts "EXECUTOR_DATABASE_URL not configured" with layer `infra`.
 - L6 Evidence: 56 passed (`tests` + `centinela_svc`). RED observed before each GREEN (allowlist, audit, victim, executor, approval token). Live run with real Claude (`claude-sonnet-5-5`): reasoner answered, audit rows landed in Postgres (7), unauthenticated approval returned 401. Claude chose `none` locally because the 200-char cmdline cut in `reasoner.py` hid `stratum+tcp` behind the long macOS venv path; not an issue in Docker (short path). Reported to Persona B's area, not changed.
 - L7 Unverified: whether Render's managed Postgres user has CREATEROLE (needed to create `centinela_executor`); the victim logs an error and keeps running if not. `basic-256mb` plan name taken from Render's current plan list, not checked against the account.
+- L8 Independent verifier (S1, S2, S3, S5, S6 met; S4 partial). Blockers: (1) victim trusted the left-most `X-Forwarded-For` entry, so `X-Forwarded-For: 1.2.3.4, <blocked ip>` or `::ffff:<blocked ip>` returned 200; (2) `render.yaml` gave Centinela the victim's owner credential through `AUDIT_DATABASE_URL`, and the victim owner could `TRUNCATE audit_log` with `verify()` still passing. Fixes (`5917e35`): `TRUSTED_PROXY_HOPS` (right-most entries only, IPv4-mapped normalized), separate `centinela-audit-db`, BEFORE TRUNCATE trigger; advisories fixed too: mapped/unspecified IPs in policy, trigger refuses ranges and `::ffff:` addresses, executor reads only `sessions(id, user_id)`. Recheck: 62 passed, the spoof probes now return 403.
+- L9 Advisories left open: `/access-log` and `/security-state` are public by design (monitor); approvals are open if `APPROVER_TOKEN` is blank (deploy checklist); pending approvals live in memory; `revoke_key` protection relies on the `protected` flag.
