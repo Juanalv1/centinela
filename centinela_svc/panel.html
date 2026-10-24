@@ -238,7 +238,7 @@ footer{border-top:1px solid var(--line);padding-block:32px;font-family:var(--mon
       <hr class="rule" style="margin-bottom:40px">
       <p class="eyebrow m">En vivo con el público</p>
       <h2 style="margin-top:16px">Escanea el QR. Ataca. Mira cómo Centinela responde.</h2>
-      <p class="muted" style="margin-top:12px"><b style="color:var(--magenta)">Sección simulada</b> (aún sin portal real). Los participantes y el marcador son de ejemplo; los botones del celular sí disparan la sala de control real de arriba.</p>
+      <p class="muted" style="margin-top:12px">Portal real en <b>/unirse</b>. Los participantes, el feed y el marcador son <b style="color:var(--yellow)">datos reales</b> del backend; cada ataque pasa por el ejecutor y queda en el audit. Los botones del celular de muestra también disparan la sala de control real de arriba.</p>
     </div>
     <div class="live" role="region" aria-label="Vista previa de la demo con el público">
       <div>
@@ -254,8 +254,7 @@ footer{border-top:1px solid var(--line);padding-block:32px;font-family:var(--mon
           <p class="tag" style="color:var(--yellow)">Hola, @tú</p>
           <div id="phoneMenu">
             <button type="button" data-scn="miner">⛏ Lanzar minero</button>
-            <button type="button" data-scn="brute">🔑 Fuerza bruta</button>
-            <button type="button" data-scn="inject">✉ Inyectar texto en logs</button>
+            <button type="button" data-scn="inject">✉ Engañar a la IA</button>
             <p class="res" id="phoneHint">Toca un ataque para empezar.</p>
           </div>
           <div id="phoneResult" hidden>
@@ -456,33 +455,50 @@ footer{border-top:1px solid var(--line);padding-block:32px;font-family:var(--mon
   try { new QRCode($('qr'), { text:'https://centinela-lyiy.onrender.com/unirse', width:172, height:172, colorDark:'#111010', colorLight:'#f2f2f2' }); }
   catch(e){ $('qr').textContent='QR'; }
 
-  // Example audience activity, clearly simulated.
-  const names=['vale','tomi','ana_s','nico','fer','juanpa','cami','rodri','luz','mati','sofi','beto'];
-  const kinds=[['lanzó un minero','proceso eliminado'],['probó fuerza bruta','IP bloqueada'],['inyectó texto en logs','traición denegada']];
-  const board=new Map(); let people=0;
-  const pick=a=>a[Math.random()*a.length|0];
-  function feed(txt,cls){
-    const d=document.createElement('div'); d.textContent=txt; if(cls) d.className=cls;
-    const f=$('feed'); f.appendChild(d); while(f.children.length>8) f.firstChild.remove();
+  // Real shared feed/leaderboard from the backend (GET /api/live).
+  const VERB={inject:'engañó a la IA',miner:'lanzó un minero'};
+  const LAYERS={menu:'menú',policy:'política',infra:'infraestructura'};
+  const esc=s=>String(s??'');
+  function verdictText(e){
+    if(e.error) return 'error';
+    if(e.status==='rejected') return 'DENEGADA'+(e.layer?(' · capa '+(LAYERS[e.layer]||e.layer)):'');
+    if(e.status==='executed') return 'contenido'+(e.containment_s!=null?(' en '+e.containment_s+' s'):'');
+    if(e.status==='launched') return 'lanzado'+(e.containment_s!=null?(' · último contenido '+e.containment_s+' s'):'');
+    if(e.status==='queued') return 'en cola (ataque en curso)';
+    if(e.status==='pending_approval') return 'requiere humano';
+    return esc(e.status);
   }
-  function renderBoard(){
-    const rows=[...board].sort((a,b)=>b[1]-a[1]).slice(0,5);
-    $('board').replaceChildren(...rows.map(([n,s])=>{ const li=document.createElement('li'); li.innerHTML='<span></span><b></b>'; li.firstChild.textContent='@'+n; li.lastChild.textContent=s.toFixed(1)+' s'; return li; }));
+  function renderFeed(activity){
+    const bad=e=>e.status==='rejected'||e.status==='failed'||e.error;
+    $('feed').replaceChildren(...activity.slice(0,8).map(e=>{
+      const d=document.createElement('div'); d.className=bad(e)?'y':'m';
+      d.textContent='@'+esc(e.handle)+' '+(VERB[e.attack]||esc(e.attack))+' → '+verdictText(e);
+      return d;
+    }));
   }
-  function tick(){
-    if(people<48){ people+=1+(Math.random()*3|0); $('people').textContent=people; }
-    const n=pick(names), k=pick(kinds), secs=1.5+Math.random()*3;
-    feed('@'+n+' '+k[0],'m');
-    setTimeout(()=>{ feed('→ '+k[1]+' en '+secs.toFixed(1)+' s','y'); board.set(n,Math.max(board.get(n)||0,secs)); renderBoard(); },900);
+  function renderBoard(board){
+    $('board').replaceChildren(...board.map(r=>{
+      const li=document.createElement('li'); li.innerHTML='<span></span><b></b>';
+      li.firstChild.textContent='@'+esc(r.handle);
+      li.lastChild.textContent=r.best_s!=null?(r.best_s.toFixed(1)+' s'):(r.actions+' intentos');
+      return li;
+    }));
   }
-  tick(); setInterval(tick,2600);
+  async function pollLive(){
+    try{
+      const s=await (await fetch('/api/live')).json();
+      $('people').textContent=s.people||0;
+      renderFeed(s.activity||[]); renderBoard(s.board||[]);
+    }catch(e){ /* keep last view */ }
+  }
+  pollLive(); setInterval(pollLive,1500);
 
-  const msgs={miner:'Minero lanzado. Mira la pantalla…',brute:'Atacando el login… mira la pantalla.',inject:'Texto inyectado. ¿Caerá la IA?'};
+  // Phone preview (section 02): non-interactive mirror of the real portal.
+  const msgs={miner:'Minero lanzado. Mira la pantalla…',inject:'Intento de engaño enviado. Mira la pantalla.'};
   function showMenu(){ $('phoneResult').hidden=true; $('phoneMenu').hidden=false; }
   document.querySelectorAll('.phone [data-scn]').forEach(b=>b.addEventListener('click',()=>{
-    $('phoneRes').textContent=msgs[b.dataset.scn];
+    $('phoneRes').textContent=msgs[b.dataset.scn]||'Mira la pantalla.';
     $('phoneMenu').hidden=true; $('phoneResult').hidden=false;
-    feed('@tú '+b.textContent.slice(2).toLowerCase(),'m');
   }));
   $('phoneBack').addEventListener('click',showMenu);
 })();
