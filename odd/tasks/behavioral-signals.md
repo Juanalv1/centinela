@@ -1,12 +1,28 @@
 # Feature: behavioral-signals
 
 ## Objective
-Give the AI behavioral telemetry so Centinela detects suspicious workloads by behavior, not by obvious strings.
+Give the AI behavioral telemetry so Centinela detects attacks by behavior, not by obvious strings. It must detect both cases below; the demo uses case A.
+
+## Priority
+- **A (demo, first): stolen valid credential, Snowflake 2024 pattern.** A valid API key used by someone else: new IP, unusual hours, endpoints the key never used, slow paginated bulk download. No errors, no failed logins, no rate-limit hit.
+- **B (second): hidden miner, Tesla 2017-2018 pattern.** Process-level signals below.
+
+## Baseline measurement (before this feature)
+`docs/evals/process-detection-baseline.md`: with obvious tells (pool string, `/tmp`) the AI caught 9/9; without them it auto-killed 0/9 (only human-review recommends); 0 false kills in 27 legit trials. Repeat this eval after B to compare.
 
 ## Problem
 Today the victim's `/metrics` exposes per process only `name`, `cmdline`, `username`, `cpu_percent`, `create_time`, `managed` (`victim/app.py:97-104`). Apart from CPU there is no behavior. Without the fake pool string in the demo job's cmdline, the AI cannot tell a disguised workload from a legitimate heavy job. Product value depends on fixing this: obvious signals are caught by any tool.
 
-## Scope
+## Scope A: per-key access behavior
+| Signal | Lets the AI reason |
+|---|---|
+| Access log per request: key id, client IP (proxy-appended only), endpoint, response bytes, time | Raw evidence |
+| Per-key baseline (deterministic): usual IPs/networks, hours, endpoints, volume | "This key never did this before" |
+| Current window vs baseline | New IP + off-hours + never-used export endpoints + steady paginated volume |
+
+Lab data: seed a clearly-marked normal usage history for the demo key (office IP, business hours). The live "attacker" uses the same key from another network (e.g. a phone hotspot).
+
+## Scope B: per-process signals
 Per-process signals (psutil, Linux), added to `/metrics` and passed to the reasoner:
 
 | Signal | Lets the AI reason |
