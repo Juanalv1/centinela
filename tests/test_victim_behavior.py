@@ -93,6 +93,7 @@ def victim(monkeypatch, endpoint, tmp_path):
     mod.JOB_ARGS["backup"] = ["--dest", str(tmp_path / "backups")]
     with TestClient(mod.app) as client:
         client.tmp_path = tmp_path
+        client.mod_sysload = mod.sysload
         yield client
 
 
@@ -138,3 +139,18 @@ def test_backup_job_writes_real_files_and_opens_no_connections(victim):
         assert _proc(victim, pid)["net"]["count"] == 0
     finally:
         _kill(victim, pid)
+
+
+def test_processes_report_their_share_of_the_container_cpu_quota(victim, monkeypatch):
+    monkeypatch.setattr(victim.mod_sysload, "quota_cores", lambda: 0.5)
+    m = victim.get("/metrics").json()
+    assert m["cpu_quota_cores"] == 0.5
+    me = next(p for p in m["processes"] if p["pid"] == os.getpid())
+    assert me["quota_percent"] == round(me["cpu_percent"] / 0.5, 1)
+
+
+def test_quota_share_is_null_without_a_cgroup_quota(victim, monkeypatch):
+    monkeypatch.setattr(victim.mod_sysload, "quota_cores", lambda: None)
+    m = victim.get("/metrics").json()
+    assert m["cpu_quota_cores"] is None
+    assert all(p["quota_percent"] is None for p in m["processes"])

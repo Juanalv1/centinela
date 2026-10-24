@@ -85,6 +85,7 @@ def metrics() -> dict:
         _reap_job()
         job_pid = _job.pid if _job is not None else None
         now = time.time()
+        quota = sysload.quota_cores()
         seen: set[int] = set()
         processes = []
         for proc in psutil.process_iter():
@@ -107,7 +108,10 @@ def metrics() -> dict:
                         "name": cached.name(),
                         "cmdline": cached.cmdline(),
                         "username": cached.username(),
-                        "cpu_percent": cached.cpu_percent(interval=None),
+                        "cpu_percent": (cpu := cached.cpu_percent(interval=None)),
+                        # Share of this container's own CPU budget: on a shared 16-core
+                        # host, 50% of one core can be the whole server.
+                        "quota_percent": round(cpu / quota, 1) if quota else None,
                         "create_time": cached.create_time(),
                         # Allowlist signal: only job-runner children may be killed.
                         "managed": pid == job_pid,
@@ -122,6 +126,7 @@ def metrics() -> dict:
         "server_time": now,
         "cpu_percent": psutil.cpu_percent(interval=None),
         "cpu_count": psutil.cpu_count(),
+        "cpu_quota_cores": quota,
         "processes": processes,
     }
 

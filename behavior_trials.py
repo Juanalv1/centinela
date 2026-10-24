@@ -90,8 +90,8 @@ def main() -> None:
     parser.add_argument("--victim", required=True)
     parser.add_argument("--centinela", required=True)
     parser.add_argument("--runs", type=int, default=5)
-    parser.add_argument("--window", type=float, default=45.0,
-                        help="seconds to wait for a proposal (covers new-pid evaluation and a heartbeat)")
+    parser.add_argument("--window", type=float, default=120.0,
+                        help="seconds to watch each job (new-pid evaluation plus several heartbeats)")
     parser.add_argument("--token", default=os.environ.get("EXECUTOR_TOKEN"))
     args = parser.parse_args()
     if not args.token:

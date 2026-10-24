@@ -34,7 +34,8 @@ def _usage_usec() -> int | None:
     return None
 
 
-def _quota_cores() -> float | None:
+def quota_cores() -> float | None:
+    """CPU cores this container may use (cgroup v2 cpu.max); None when unlimited or unavailable."""
     try:
         quota, period = _CPU_MAX.read_text().split()
         return None if quota == "max" else int(quota) / int(period)
@@ -53,7 +54,7 @@ def container_cpu_percent() -> float | None:
     _cpu_prev["usage_usec"], _cpu_prev["t"] = usage, now
     if usage is None or prev_u is None or prev_t is None or now <= prev_t:
         return None
-    cores = _quota_cores() or 1.0
+    cores = quota_cores() or 1.0
     avail = (now - prev_t) * cores
     return max(0.0, min(100.0, (usage - prev_u) / 1e6 / avail * 100.0)) if avail > 0 else None
 
