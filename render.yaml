@@ -10,6 +10,18 @@ services:
     envVars:
       - key: EXECUTOR_TOKEN
         sync: false
+      # Case 2: SME API data. The victim creates the schema and the
+      # least-privilege `centinela_executor` role (needs CREATEROLE).
+      - key: DATABASE_URL
+        fromDatabase:
+          name: centinela-db
+          property: connectionString
+      - key: EXECUTOR_DB_PASSWORD
+        sync: false
+      - key: DEMO_LEAKED_KEY
+        sync: false
+      - key: OFFICE_CIDR
+        value: 203.0.113.0/24
 
   - type: web
     name: centinela
@@ -30,3 +42,20 @@ services:
         value: claude-sonnet-5-5
       - key: POLL_SECONDS
         value: "2"
+      # Hash-chained audit log survives restarts.
+      - key: AUDIT_DATABASE_URL
+        fromDatabase:
+          name: centinela-db
+          property: connectionString
+      # postgresql://centinela_executor:<EXECUTOR_DB_PASSWORD>@<internal host>/<db>; never the owner URL.
+      - key: EXECUTOR_DATABASE_URL
+        sync: false
+      - key: APPROVER_TOKEN
+        sync: false
+      - key: OFFICE_CIDR
+        value: 203.0.113.0/24
+
+databases:
+  - name: centinela-db
+    plan: basic-256mb
+    region: oregon

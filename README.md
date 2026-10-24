@@ -59,3 +59,35 @@ python attack.py --target http://localhost:18000
 The job is a pure arithmetic loop (no networking, stops itself after 10 minutes, at most one at a time). Within a few seconds the panel shows the proposal, the executor decision and the detection/containment times. The "Simular IA comprometida" button sends a forged proposal targeting `db-sim` to show the executor's rejection.
 
 `render.yaml` deploys both services to Render (secrets declared with `sync: false`).
+
+## Case 2: leaked API key on a small company's API (control layer)
+
+The victim also runs a small company's API on Postgres (enabled by `DATABASE_URL`): users, API keys, sessions and an HTTP access log that stores the User-Agent (attacker-controlled text). See `victim/pyme.py` and `victim/schema.sql`.
+
+| Endpoint | Purpose |
+|---|---|
+| `POST /api/login`, `GET /api/me`, `GET /api/invoices` | the business API (`X-API-Key` or `Authorization: Bearer <session>`) |
+| `GET /access-log?after=<id>` | access log with `user_agent`, `ip`, `username`, `api_key_id` for the monitor |
+| `GET /security-state` | keys, blocked IPs, users (role, suspended) and sessions per user |
+
+The executor acts on that database with its own role, `centinela_executor` (`victim/roles.sql`):
+
+| Action | Target value | What the role may do |
+|---|---|---|
+| `revoke_key` | key id | `UPDATE (status) ON api_keys` |
+| `block_ip` | ip | `INSERT, DELETE ON ip_blocklist` |
+| `close_sessions` | user id | `DELETE ON sessions` |
+| `suspend_user` (approval lane) | user id | `INSERT ON user_suspensions` + close sessions |
+
+It has no privileges on `users`, `access_log` or `protected_networks`. Admin keys, admin users and the office network (`OFFICE_CIDR`) are protected twice: the executor's policy layer rejects them, and database triggers refuse them even if the executor is bypassed (`Executor.bypass_demo`). The refusal (`permission denied: ...`) lands in the audit log as an `infra` failure.
+
+Centinela env for case 2: `EXECUTOR_DATABASE_URL` (the executor role, never the owner URL), `AUDIT_DATABASE_URL` (Postgres audit log; falls back to `AUDIT_PATH`), `OFFICE_CIDR`, `APPROVER_TOKEN` (when set, `POST /api/approvals/{id}` requires `X-Approver-Token`).
+
+### Tests
+
+```sh
+uv venv -p 3.12 .venv && uv pip install -p .venv/bin/python -r centinela_svc/requirements.txt -r victim/requirements.txt pgserver pytest
+PGSERVER_DATA=$(mktemp -d) .venv/bin/python -m pytest -q tests centinela_svc
+```
+
+`pgserver` starts a real embedded PostgreSQL, so the grants and triggers are tested for real (no Docker needed).

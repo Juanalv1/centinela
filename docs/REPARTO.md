@@ -16,11 +16,13 @@ Reglas del ejecutor: el carril sale solo del `MENU`; `confidence: low` en una ac
 
 Archivos: `centinela_svc/executor.py`, `centinela_svc/audit.py`, `victim/**`, `render.yaml`
 
-1. **Lista blanca en el ejecutor:** hecha del lado del ejecutor (`managed: true`); falta que la víctima publique ese flag en `/metrics`.
-2. **Bitácora persistente:** pasarla de `/tmp` a Postgres de Render, manteniendo la cadena de hashes.
-3. **Víctima del caso 2:** una API de PyME con usuarios, claves de API y sesiones en Postgres. Un log de acceso HTTP que guarde el User-Agent.
-4. **Credencial mínima:** un rol de Postgres para el ejecutor con `GRANT` solo sobre `api_keys.status`, `ip_blocklist` y `sessions`. Nunca sobre `users`. Verificar que `permission denied` llegue a la bitácora.
-5. **Ejecutor del caso 2:** implementar las acciones nuevas del menú y la cola de aprobación humana para las acciones de alto riesgo.
+1. ✅ **Lista blanca en el ejecutor:** el ejecutor exige `managed: true` y la víctima lo publica en `/metrics`.
+2. ✅ **Bitácora persistente:** `AUDIT_DATABASE_URL` la guarda en Postgres; la cadena de hashes continúa tras reinicios y la tabla es de solo inserción.
+3. ✅ **Víctima del caso 2:** API de PyME en Postgres (`victim/pyme.py`) con usuarios, claves, sesiones y un log de acceso que guarda el User-Agent (`GET /access-log`, `GET /security-state`).
+4. ✅ **Credencial mínima:** rol `centinela_executor` (`victim/roles.sql`). Puede escribir `api_keys.status`, `ip_blocklist`, `sessions` y `user_suspensions` (para `suspend_user`); nada sobre `users`. Un `permission denied` queda en la bitácora como fallo de la capa `infra`.
+5. ✅ **Ejecutor del caso 2:** `revoke_key`, `block_ip`, `close_sessions` y `suspend_user` (aprobación humana). Admins y la red de la oficina están protegidos en la capa `policy` y otra vez con triggers en la base. Aprobar exige `X-Approver-Token` cuando `APPROVER_TOKEN` está configurado.
+
+Pendiente para integrar con B: el razonador debe leer `/access-log` y proponer `target.value` con ids numéricos (`api_key_id`, `user_id`) o la IP. Un botón de demo para `Executor.bypass_demo` mostraría la capa de la base de datos.
 
 ## Persona B — Maikol (@maikCyphlock) — IA, panel y demo
 
