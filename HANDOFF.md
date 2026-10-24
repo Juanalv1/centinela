@@ -1,8 +1,8 @@
 # Handoff: Centinela — demo design for Platanus Hack (AI Security)
 
-**Generated**: 2026-10-24 14:53
+**Generated**: 2026-10-24 14:53 (updated after pulling Christian's demo work)
 **Branch**: main
-**Status**: In Progress — choosing the interactive demo format
+**Status**: In Progress — demo format chosen (QR portal with real attacks); polishing and validation
 
 ## Goal
 
@@ -17,15 +17,17 @@ Win Platanus Hack Caracas (AI Security track) with Centinela: AI-assisted incide
 - [x] Christian already pushed case-2 control layer (Postgres victim API, least-privilege executor role, persistent audit). See `odd/tasks/control-layer-case2.md`.
 - [x] Auto-deploy: GitHub Action `.github/workflows/deploy.yml` calls Render deploy hooks on push to `main` (secrets `RENDER_HOOK_VICTIM`, `RENDER_HOOK_CENTINELA`). Verified: trigger `deploy_hook`.
 - [x] Interactive mock of demo proposal 1: `docs/demo-mocks/01-empresa.html` (also published as private artifact https://claude.ai/artifact/JiWrRZ4j4yqnsnQo6U3vUP).
+- [x] **Demo format chosen by the team and built by Christian** (see `odd/tasks/audience-live-portal.md`): QR → `/unirse` phone portal → `@handle` → real attack. Nothing simulated (user rule: "NADA ES SIMULADO TODO ES REAL EN ESE ENTORNO CONTROLADO").
+  - Endpoints: `POST /api/join`, `POST /api/participate`, `GET /api/live` (`centinela_svc/audience.py`, in-memory).
+  - Big screen `#envivo`: real shared feed, leaderboard and people count.
+  - Miner (`/api/attack`) is a rate-limited singleton: taps during an active incident attach to it. Scalable per-person attack reuses `/api/simulate-compromised` (real forged proposal → real executor deny + layer + audit).
+  - `victim/monitor.html`: real-time victim monitor page.
 
 ## Not Yet Done
 
-- [ ] User/teammate validates mock 1 ("Tú eres la empresa").
-- [ ] Mocks for proposals 2–4, one file each under `docs/demo-mocks/` (build them one at a time, small files):
-  - 2 "Tú decides lo grave": audience votes on phone to approve/deny a high-risk action (`suspend_user`, approval lane).
-  - 3 "Elige el engaño": audience votes one of 3 prepared prompt-injection texts that lands in the logs; AI resists; then "IA comprometida" mode → executor rejects and shows the stopping `layer`.
-  - 4 Baseline: original "spawn a miner via QR" idea, for comparison.
-- [ ] Pick final demo format, then build portal (QR target) + big-screen panel.
+- [ ] Run a full rehearsal on Render with several phones and check feed, leaderboard and containment times.
+- [ ] Confirm whether the CPU visibility issue is resolved: Christian committed `b64e482` ("report the container's own CPU so attacks are visible") and reverted it in `84c82ef`. Ask him why before touching it.
+- [ ] Mock proposals 2–3 (approval vote, injection vote) are now optional ideas for extending the live demo, not the plan.
 - [ ] Measure real Claude API token cost (not measured; ~120 calls/h from 30 s heartbeat).
 
 ## Failed Approaches (Don't Repeat These)
@@ -49,7 +51,8 @@ Win Platanus Hack Caracas (AI Security track) with Centinela: AI-assisted incide
 | `layer` on each Decision (`menu`/`policy`/`infra`) | Pitch metric: which layer stopped each injection |
 | Process allowlist (`managed`) instead of blacklist | Render injected `portdetectorv2`, which the blacklist would have allowed killing |
 | Code identifiers in English; jury-facing text in Spanish | User requirement |
-| Recommended demo: proposal 1 (+2) | Answers the rate-limit objection (cut 1 of 50), lightweight HTTP, reuses case 2 |
+| Recommended demo: proposal 1 (+2) | Answers the rate-limit objection (cut 1 of 50), lightweight HTTP, reuses case 2. Superseded: the team chose the QR portal with real attacks |
+| Live demo: miner as singleton, forged-proposal attack per person | Fits 512 MB; every tap still hits the real executor and audit |
 
 ## Current State
 
@@ -66,6 +69,10 @@ Win Platanus Hack Caracas (AI Security track) with Centinela: AI-assisted incide
 | `centinela_svc/reasoner.py` | Claude call, `propose_action` tool |
 | `victim/app.py` | Job runner, `/metrics` (`managed` flag), `/kill` (token) |
 | `docs/REPARTO.md` | Work split and team rules |
+| `centinela_svc/audience.py` | Audience join/participate/live state and rate limits |
+| `centinela_svc/portal.html` | Phone portal served at `/unirse` (QR target) |
+| `victim/monitor.html` | Real-time victim monitor page |
+| `odd/tasks/audience-live-portal.md` | Specs and evidence for the live demo |
 | `docs/demo-mocks/01-empresa.html` | Demo mock 1 (open by double-click) |
 | `VIABILIDAD.md` | Feasibility report with cloud timings |
 | `odd/tasks/*.md` | Per-feature task docs with evidence |
@@ -89,7 +96,8 @@ Render service IDs: victim `srv-dbeevj3rjlhs73fg5ong`, centinela `srv-dbeevjvb9u
 ## Resume Instructions
 
 1. `git pull` on `main`; read `docs/REPARTO.md` and `odd/tasks/control-layer-case2.md` (teammate work may have moved on).
-2. Ask the user whether mock 1 was validated, then build mock 2 as `docs/demo-mocks/02-aprobacion.html` (self-contained HTML, simulated in browser, no backend calls).
+2. Open `https://centinela-lyiy.onrender.com/unirse` on a phone, join with a `@handle`, launch an attack, and watch the `#envivo` section on the panel.
+   - Expected: your handle appears in the feed and leaderboard; the attack result shows on the phone.
 3. Verify cloud still works: `python attack.py --target https://centinela-victim.onrender.com`, then `curl https://centinela-lyiy.onrender.com/api/state`.
    - Expected: a new incident with `containment_s` ≈ 5–8 s.
    - If no incident: check the latest Action run (`gh run list -R Juanalv1/centinela`) and Render deploy status.
