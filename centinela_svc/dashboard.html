@@ -41,6 +41,14 @@ nav svg,.ico{width:18px;height:18px;flex:none;fill:none;stroke:currentColor;stro
 .pillst{display:inline-flex;align-items:center;gap:8px;min-height:44px;padding:0 16px;border:1px solid var(--line);border-radius:999px;font-family:var(--mono);font-size:13px}
 .dot{width:10px;height:10px;border-radius:50%;background:var(--yellow)}
 .pillst.bad .dot{background:var(--magenta)}
+.agent{display:flex;align-items:center;gap:28px;flex-wrap:wrap;padding:24px;border:1px solid var(--line);border-radius:10px;background:radial-gradient(120% 140% at 15% 50%,#1b1d33 0%,var(--panel) 55%)}
+.agent canvas{width:200px;height:200px;flex:none;display:block}
+.agent-body{flex:1 1 280px;display:flex;flex-direction:column;gap:10px;min-width:0}
+.agent-st{font-family:var(--mono);font-size:12px;letter-spacing:1.5px;text-transform:uppercase;color:#9aa6ff}
+.agent[data-state=talking] .agent-st{color:var(--yellow)}
+.agent-say{font-size:24px;line-height:1.4;font-weight:500;overflow-wrap:anywhere}
+.voice{align-self:flex-start;border:1px solid var(--line);border-radius:999px;padding:6px 14px;background:none;color:var(--muted);font-family:var(--mono);font-size:12px;cursor:pointer}
+.voice[aria-pressed=true]{color:#c9d0ff;border-color:#6f7cff}
 .banner{display:flex;gap:14px;align-items:center;padding:18px 20px;border:1px solid var(--line);border-left:4px solid var(--yellow);background:var(--panel);border-radius:6px}
 .banner.threat{border-left-color:var(--magenta)}
 .banner.human{border-left-color:var(--blue)}
@@ -101,6 +109,14 @@ ul.log{list-style:none;margin:10px 0 0;padding:0;font-family:var(--mono);font-si
       <div class="user" id="user"></div>
       <div class="pillst" id="live" role="status"><span class="dot" aria-hidden="true"></span><span id="liveText">Conectando</span></div>
     </div>
+    <section class="agent" id="agent" data-state="idle" aria-label="Agente Centinela">
+      <canvas id="orbCanvas" width="400" height="400" aria-hidden="true"></canvas>
+      <div class="agent-body">
+        <span class="agent-st" id="agentSt">Centinela · vigilando</span>
+        <p class="agent-say" id="agentSay" aria-live="polite">Hola. Estoy vigilando tus servidores.</p>
+        <button class="voice" id="voiceBtn" type="button" aria-pressed="true">🔊 Voz activada</button>
+      </div>
+    </section>
     <div class="banner" id="banner" role="status">
       <svg class="ico" id="bannerIco" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3l8 3v6c0 5-3.5 8-8 9-4.5-1-8-4-8-9V6z"/><path d="M8.5 12l2.5 2.5L15.5 10"/></svg>
       <div><h2 id="bannerTitle">Cargando</h2><p class="muted" id="bannerText"></p></div>
@@ -154,6 +170,87 @@ ul.log{list-style:none;margin:10px 0 0;padding:0;font-family:var(--mono);font-si
     </section>
   </main>
 </div>
+<script>
+/* Agent orb (soft cloud sphere, audio-reactive) + Edge neural voice via /api/tts.
+   Voice is on by default; browsers block audio until the first user gesture,
+   so a blocked line is queued and plays on the first click or key press. */
+const Agent = (() => {
+  const box = document.getElementById('agent'), cv = document.getElementById('orbCanvas');
+  const st = document.getElementById('agentSt'), sayEl = document.getElementById('agentSay'), btn = document.getElementById('voiceBtn');
+  const a = { busy: false, talking: false, alert: false, voiceOn: true, lastProp: undefined };
+  const LABEL = { idle: 'Centinela · vigilando', listening: 'Centinela · analizando', talking: 'Centinela · hablando' };
+  let audio = null, analyser = null, actx = null, pending = null, lastSpoken = '';
+  const state = () => a.talking ? 'talking' : a.busy ? 'listening' : 'idle';
+
+  const gl = cv.getContext('webgl', { premultipliedAlpha: false });
+  let draw = () => {};
+  if (gl) {
+    const vs = 'attribute vec2 p;void main(){gl_Position=vec4(p,0.,1.);}';
+    const fs = 'precision mediump float;uniform vec2 r;uniform float t,e,hot;'
+      + 'float h(vec2 p){return fract(sin(dot(p,vec2(127.1,311.7)))*43758.5453);}'
+      + 'float n(vec2 p){vec2 i=floor(p),f=fract(p);f=f*f*(3.-2.*f);return mix(mix(h(i),h(i+vec2(1,0)),f.x),mix(h(i+vec2(0,1)),h(i+vec2(1,1)),f.x),f.y);}'
+      + 'float fbm(vec2 p){float v=0.,a=.5;for(int i=0;i<5;i++){v+=a*n(p);p=p*2.03+vec2(1.7,9.2);a*=.5;}return v;}'
+      + 'void main(){vec2 uv=(gl_FragCoord.xy*2.-r)/r.y;float R=.62+e*.1;float d=length(uv);'
+      + 'vec3 base=mix(vec3(.40,.47,1.),vec3(.95,.30,.62),hot),lite=mix(vec3(.86,.89,1.),vec3(1.,.86,.92),hot);'
+      + 'if(d>R){float g=exp(-(d-R)*(5.-e*2.))*(.28+e*.5);gl_FragColor=vec4(base*1.1,g);return;}'
+      + 'vec2 q=uv/R;float z=sqrt(max(1.-dot(q,q),0.));vec2 s=q/(1.+z)*1.6;'
+      + 'float c=fbm(s*2.2+vec2(t*.07,-t*.05)+fbm(s*3.+t*(.1+e*.6))*1.2);'
+      + 'vec3 col=mix(base,lite,smoothstep(.35,.85,c));col*=.75+.35*z;col+=pow(1.-z,3.)*.25*lite;'
+      + 'gl_FragColor=vec4(col,smoothstep(R,R-.01,d));}';
+    const sh = (ty, src) => { const x = gl.createShader(ty); gl.shaderSource(x, src); gl.compileShader(x); return x; };
+    const pr = gl.createProgram();
+    gl.attachShader(pr, sh(gl.VERTEX_SHADER, vs)); gl.attachShader(pr, sh(gl.FRAGMENT_SHADER, fs)); gl.linkProgram(pr); gl.useProgram(pr);
+    gl.bindBuffer(gl.ARRAY_BUFFER, gl.createBuffer());
+    gl.bufferData(gl.ARRAY_BUFFER, new Float32Array([-1, -1, 1, -1, -1, 1, 1, 1]), gl.STATIC_DRAW);
+    const loc = gl.getAttribLocation(pr, 'p'); gl.enableVertexAttribArray(loc); gl.vertexAttribPointer(loc, 2, gl.FLOAT, false, 0, 0);
+    gl.enable(gl.BLEND); gl.blendFunc(gl.SRC_ALPHA, gl.ONE_MINUS_SRC_ALPHA);
+    const U = x => gl.getUniformLocation(pr, x), ur = U('r'), ut = U('t'), ue = U('e'), uh = U('hot');
+    const buf = new Uint8Array(64); let e = 0, hv = 0;
+    draw = ms => {
+      let lvl = 0;
+      if (a.talking && analyser) { analyser.getByteFrequencyData(buf); lvl = buf.reduce((x, y) => x + y, 0) / buf.length / 160; }
+      else if (a.talking) lvl = .4 + .3 * Math.abs(Math.sin(ms / 110));
+      const target = a.talking ? Math.min(lvl, 1) : a.busy ? .25 + .08 * Math.sin(ms / 300) : .04 + .03 * Math.sin(ms / 900);
+      e += (target - e) * .15; hv += ((a.alert ? 1 : 0) - hv) * .04;
+      gl.viewport(0, 0, cv.width, cv.height); gl.clearColor(0, 0, 0, 0); gl.clear(gl.COLOR_BUFFER_BIT);
+      gl.uniform2f(ur, cv.width, cv.height); gl.uniform1f(ut, ms / 1000); gl.uniform1f(ue, e); gl.uniform1f(uh, hv);
+      gl.drawArrays(gl.TRIANGLE_STRIP, 0, 4);
+    };
+  }
+  (function frame(ms) { const s = state(); box.dataset.state = s; st.textContent = LABEL[s]; draw(ms); requestAnimationFrame(frame); })(0);
+
+  function stop() { if (audio) { audio.pause(); audio = null; } a.talking = false; }
+  async function play(text) {
+    const r = await fetch('/api/tts', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ text }) });
+    if (!r.ok) throw new Error('tts ' + r.status);
+    const url = URL.createObjectURL(await r.blob()), el = new Audio(url); audio = el;
+    el.onplay = () => { a.talking = true; };
+    el.onended = el.onerror = () => { a.talking = false; a.alert = false; URL.revokeObjectURL(url); };
+    await el.play();
+    try {  // audio-reactive orb; harmless if the browser refuses
+      actx = actx || new AudioContext(); await actx.resume();
+      analyser = actx.createAnalyser(); analyser.fftSize = 128;
+      actx.createMediaElementSource(el).connect(analyser); analyser.connect(actx.destination);
+    } catch (err) { analyser = null; }
+  }
+  function speak(text) {
+    if (!a.voiceOn || !text || text === lastSpoken) return;
+    lastSpoken = text; stop();
+    play(text.slice(0, 300)).catch(err => { if (err && err.name === 'NotAllowedError') { pending = text; lastSpoken = ''; } });
+  }
+  const unlock = () => { if (pending) { const t = pending; pending = null; speak(t); } };
+  addEventListener('pointerdown', unlock); addEventListener('keydown', unlock);
+  btn.onclick = () => {
+    a.voiceOn = !a.voiceOn; btn.setAttribute('aria-pressed', a.voiceOn);
+    btn.textContent = a.voiceOn ? '🔊 Voz activada' : '🔇 Voz silenciada';
+    if (!a.voiceOn) { stop(); pending = null; }
+  };
+  // show: text on screen; spoken: what to say (null -> the shown text)
+  a.say = (show, spoken) => { sayEl.textContent = show; if (spoken) a.alert = true; speak(spoken || show); };
+  speak(sayEl.textContent);
+  return a;
+})();
+</script>
 <script>
 (() => {
   const $ = id => document.getElementById(id);
@@ -275,6 +372,16 @@ ul.log{list-style:none;margin:10px 0 0;padding:0;font-family:var(--mono);font-si
     $('bannerTitle').textContent = title; $('bannerText').textContent = text;
     const bi = clear($('bannerIco')), bp = document.createElementNS(SVGNS, 'path');
     bp.setAttribute('d', icon); bi.appendChild(bp);
+
+    // agent voice: announce each new proposal; attacks get an explicit alert
+    Agent.busy = !!s.reasoner_busy;
+    const ap = proposals[0];
+    if (ap && ap.id !== Agent.lastProp) {
+      const first = Agent.lastProp === undefined; Agent.lastProp = ap.id;
+      const threat = ap.action && ap.action !== 'none';
+      if (threat) Agent.say(ap.rationale || title, first ? null : 'Alerta. Ataque detectado. ' + (ap.rationale || ''));
+      else if (!first) Agent.say(ap.rationale || text, null);
+    }
 
     // KPIs
     const rejected = decisions.filter(d => d.status === 'rejected').length;
