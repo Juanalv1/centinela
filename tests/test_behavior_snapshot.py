@@ -66,3 +66,32 @@ def test_job_runner_children_never_become_baseline():
     later = {"processes": [dict(job)]}
     baseline.annotate(later, now=1070.0)
     assert later["processes"][0]["new_since_baseline"] is True
+
+
+def test_sustained_cpu_counts_seconds_above_half_the_quota_and_resets():
+    hot = monitor_mod.SustainedCpu(threshold=50.0)
+    proc = lambda q: {"pid": 9, "create_time": 1.0, "quota_percent": q, "cpu_percent": 0.0}
+    for t, q in ((100, 90), (110, 95), (130, 92)):
+        m = {"processes": [proc(q)]}
+        hot.annotate(m, now=t)
+    assert m["processes"][0]["cpu_sustained_s"] == 30
+    m = {"processes": [proc(10)]}
+    hot.annotate(m, now=140)
+    assert m["processes"][0]["cpu_sustained_s"] == 0
+
+
+def test_sustained_cpu_falls_back_to_per_core_percent_without_quota():
+    hot = monitor_mod.SustainedCpu(threshold=50.0)
+    for t in (0, 20):
+        m = {"processes": [{"pid": 3, "create_time": 1.0, "quota_percent": None, "cpu_percent": 99.0}]}
+        hot.annotate(m, now=t)
+    assert m["processes"][0]["cpu_sustained_s"] == 20
+
+
+def test_snapshot_carries_quota_share_and_sustained_seconds():
+    metrics = {"cpu_quota_cores": 0.5,
+               "processes": [_p(20, "python", ["python"], quota_percent=92.0, cpu_sustained_s=75)]}
+    snap = reasoner.compact_snapshot(metrics)
+    assert snap["cpu_quota_cores"] == 0.5
+    assert snap["processes"][0]["quota_percent"] == 92.0
+    assert snap["processes"][0]["cpu_sustained_s"] == 75

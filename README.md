@@ -70,7 +70,20 @@ Two harmless jobs differ only in behavior: `sync` burns CPU and keeps a keep-ali
 EXECUTOR_TOKEN=... python behavior_trials.py --victim https://<victim> --centinela https://<centinela> --runs 5
 ```
 
-The script starts each job N times and records whether the AI proposed `kill_process` for it (expected: every `sync`, no `backup`).
+The script starts each job N times and records whether the AI proposed `kill_process` for it (expected: every `sync`, no `backup`). Each process also carries `quota_percent` (its share of the container's own CPU budget, `cpu_quota_cores` from cgroup v2; per-core `cpu_percent` on a shared 16-core host understates it) and, in Centinela, `cpu_sustained_s` (seconds above half that budget).
+
+### Stolen API key (Snowflake 2024 pattern)
+
+The access log records response `bytes`, the `query` string and a `lab_seed` marker. A clearly marked 21-day history is seeded once: ana's key (`DEMO_LEAKED_KEY`) on weekdays, office hours, from the office network, on `/api/me` and `/api/invoices`; luis's reports key (`DEMO_LUIS_KEY`) every hour from `LAB_KNOWN_IPS`. `/api/customers?page=N` is the paginated data an attacker would export.
+
+Centinela reads `/access-log` incrementally and keeps a deterministic profile per key (`centinela_svc/keywatch.py`). The last `KEY_WINDOW_SECONDS` (default 600) are compared against it: new ip/network, outside the key's usual days and hours, endpoints it never used, pages and volume against its busiest past hour. A key is flagged only when two or more independent deviations combine; flagged windows are never learned. Flagged keys wake the reasoner, which may propose `revoke_key`. Timezone for "usual hours": `LAB_TZ_OFFSET_HOURS` (default -4, Caracas).
+
+```sh
+LAB_TOKEN=... ANA_KEY=... LUIS_KEY=... python credential_trials.py \
+    --victim https://<victim> --centinela https://<centinela> --key-window 120
+```
+
+Run it from an ip in `LAB_KNOWN_IPS`. It runs 5 normal uses of luis's key (expected: no `revoke_key`) and 5 slow paginated exports with ana's key (expected: `revoke_key`), calling `POST /lab/reset` (`X-Lab-Token`, only when `LAB_TOKEN` is set) between runs.
 
 ## Case 2: leaked API key on a small company's API (control layer)
 

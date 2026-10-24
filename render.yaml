@@ -30,6 +30,14 @@ services:
       # Where the harmless `sync` job keeps its outbound connection (a host we control).
       - key: SYNC_ENDPOINT
         value: https://centinela-lyiy.onrender.com/health
+      # Stolen-credential lab (A): luis's reports key, the ips its seeded history
+      # comes from, and the token for POST /lab/reset between trials.
+      - key: DEMO_LUIS_KEY
+        sync: false
+      - key: LAB_KNOWN_IPS
+        sync: false
+      - key: LAB_TOKEN
+        sync: false
 
   - type: web
     name: centinela
@@ -53,6 +61,9 @@ services:
       # Warm-up window: workloads seen here form the baseline; later ones are "new".
       - key: BASELINE_SECONDS
         value: "60"
+      # Per-key window compared against each API key's history (lab: 120 s).
+      - key: KEY_WINDOW_SECONDS
+        value: "120"
       # Hash-chained audit log survives restarts. Its own database: the victim
       # (the machine under attack) must never hold credentials that reach it,
       # and Centinela must never hold the victim's owner credential.
