@@ -65,8 +65,7 @@ def compact_snapshot(metrics: dict, limit: int = 25) -> dict:
     now = metrics.get("server_time", time.time())
     procs = sorted(metrics.get("processes", []), key=lambda p: p.get("cpu_percent", 0), reverse=True)
     return {
-        # The server's OWN load (% of its CPU quota), not the shared host.
-        "server_cpu_percent": metrics.get("cpu_percent"),
+        "host_cpu_percent": metrics.get("cpu_percent"),
         "cpu_count": metrics.get("cpu_count"),
         "processes": [
             {
