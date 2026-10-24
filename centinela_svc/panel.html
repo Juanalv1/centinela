@@ -239,7 +239,7 @@ footer{border-top:1px solid var(--line);padding-block:32px;font-family:var(--mon
       <div>
         <h4 class="tag muted" style="margin:0">01 · Únete</h4>
         <div class="qr" id="qr" aria-label="Código QR de ejemplo"></div>
-        <p class="tag">centinela-lyiy.onrender.com/#envivo</p>
+        <p class="tag">centinela-lyiy.onrender.com/unirse</p>
         <div><div class="big" id="people">0</div><p class="tag muted" style="margin-top:6px">personas conectadas</p></div>
       </div>
       <div>
@@ -442,7 +442,7 @@ footer{border-top:1px solid var(--line);padding-block:32px;font-family:var(--mon
 <script>
 (() => {
   const $ = id => document.getElementById(id);
-  try { new QRCode($('qr'), { text:'https://centinela-lyiy.onrender.com/#envivo', width:172, height:172, colorDark:'#111010', colorLight:'#f2f2f2' }); }
+  try { new QRCode($('qr'), { text:'https://centinela-lyiy.onrender.com/unirse', width:172, height:172, colorDark:'#111010', colorLight:'#f2f2f2' }); }
   catch(e){ $('qr').textContent='QR'; }
 
   // Example audience activity, clearly simulated.

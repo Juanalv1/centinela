@@ -11,7 +11,7 @@ from pathlib import Path
 import httpx
 from fastapi import FastAPI, Header
 from pydantic import BaseModel
-from fastapi.responses import HTMLResponse, JSONResponse
+from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse
 
 from audit import AuditLog
 from domain import Proposal, Target
@@ -68,6 +68,12 @@ def health() -> dict:
 @app.get("/", response_class=HTMLResponse)
 def panel() -> str:
     return PANEL
+
+
+@app.get("/unirse")
+def join() -> RedirectResponse:
+    """Short link printed on the QR; lands on the live section of the panel."""
+    return RedirectResponse("/#envivo")
 
 
 @app.get("/legacy", response_class=HTMLResponse)
