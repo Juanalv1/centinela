@@ -133,25 +133,25 @@ footer{margin-top:auto;padding-top:22px;font-family:var(--mono);font-size:11px;c
     if(o.containment_s!=null) lines.push('<div class="row">contención real: <b>'+o.containment_s+' s</b></div>');
     if(o.note) lines.push('<div class="row">'+o.note+'</div>');
     if(o.error) lines.push('<div class="row">'+o.error+'</div>');
-    const head = attack==='inject'
-      ? 'Intentaste engañar a la IA.' : 'Lanzaste un minero real.';
+    const HEAD={inject:'Intentaste engañar a la IA.',miner:'Lanzaste un minero real.'};
+    const head = HEAD[attack] || 'Ataque enviado.';
     $('res').innerHTML='<div class="row" style="color:var(--fg)">'+head+'</div>'
       +'<div class="verdict '+cls+'" style="margin-top:6px">'+text+'</div>'+lines.join('');
     $('res').classList.add('show');
   }
 
-  async function attack(kind, btn){
+  const enable = () => document.querySelectorAll('.atk').forEach(b=>b.disabled=false);
+
+  async function attack(kind){
     if(busy||!handle) return;
     busy=true; document.querySelectorAll('.atk').forEach(b=>b.disabled=true);
     setHint($('atkHint'),'Atacando…');
-    const {ok,status,data}=await postJSON('/api/participate',{handle, attack:kind});
+    const {ok,status,data} = await postJSON('/api/participate',{handle, attack:kind});
     busy=false;
-    if(!ok){ setHint($('atkHint'), data.error||('Error '+status), 'bad');
-      document.querySelectorAll('.atk').forEach(b=>b.disabled=false); return; }
-    setHint($('atkHint'),'Mira la pantalla grande ☝','ok');
+    if(!ok){ setHint($('atkHint'), data.error||('Error '+status), 'bad'); enable(); return; }
+    setHint($('atkHint'),'Mira la pantalla ☝','ok');
     showResult(kind, data.entry||{});
-    // brief cooldown so people can read the verdict; server also rate-limits
-    setTimeout(()=>document.querySelectorAll('.atk').forEach(b=>b.disabled=false), 1200);
+    setTimeout(enable,1200);
   }
 
   $('btnJoin').addEventListener('click', join);

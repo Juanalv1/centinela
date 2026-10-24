@@ -62,6 +62,14 @@ async def lifespan(_app: FastAPI):
 
 app = FastAPI(title="centinela", lifespan=lifespan)
 
+# The victim's real-time monitor page (different origin) reads /api/state and
+# /api/live to render the live IA/executor columns, so allow cross-origin GETs.
+from fastapi.middleware.cors import CORSMiddleware  # noqa: E402
+
+app.add_middleware(
+    CORSMiddleware, allow_origins=["*"], allow_methods=["GET"], allow_headers=["*"],
+)
+
 
 @app.get("/health")
 def health() -> dict:

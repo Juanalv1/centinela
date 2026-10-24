@@ -19,10 +19,13 @@ from pathlib import Path
 
 import psutil
 from fastapi import FastAPI, Header
-from fastapi.responses import JSONResponse
+from fastapi.responses import HTMLResponse, JSONResponse
 from pydantic import BaseModel
 
 import pyme
+import sysload
+
+MONITOR_HTML = (Path(__file__).resolve().parent / "monitor.html").read_text(encoding="utf-8")
 
 JOBS_DIR = Path(__file__).resolve().parent / "jobs"
 # Allowlist: job name -> extra argv. The fake pool string is an unused argv
@@ -110,6 +113,25 @@ def metrics() -> dict:
         "cpu_count": psutil.cpu_count(),
         "processes": processes,
     }
+
+
+@app.get("/monitor/stats")
+def monitor_stats() -> dict:
+    """The victim's own real load for the monitor page's 'Servidor' column.
+
+    Container CPU (cgroup), not the shared 16-core host, so a real miner sent
+    from a phone visibly pegs it and its death drops it.
+    """
+    return {
+        "cpu_percent": sysload.container_cpu_percent(),
+        "mem_percent": sysload.container_mem_percent(),
+    }
+
+
+@app.get("/", response_class=HTMLResponse)
+def monitor_page() -> str:
+    """The victim's real-time monitor — same look as the demo, 100% real."""
+    return MONITOR_HTML
 
 
 def _same_process(a: psutil.Process, b: psutil.Process) -> bool:

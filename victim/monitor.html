@@ -1,0 +1,219 @@
+<!doctype html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<title>Centinela · Monitor real</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Urbanist:wght@300..800&family=JetBrains+Mono:wght@400;700&family=Silkscreen:wght@400;700&display=swap">
+<style>
+:root{
+  --bg:#111010; --panel:#1a1919; --line:#2c2a2a; --fg:#f2f2f2; --muted:#a3a0a0;
+  --yellow:#ffdd00; --magenta:#e53aa3; --blue:#4c9eff; --green:#49d08b;
+  --display:"Urbanist",system-ui,sans-serif;
+  --mono:"JetBrains Mono",ui-monospace,Consolas,monospace;
+  --pixel:"Silkscreen","JetBrains Mono",monospace;
+  color-scheme:dark;
+}
+*{box-sizing:border-box}
+body{background:var(--bg);color:var(--fg);font-family:var(--display);margin:0;padding:24px}
+a{color:inherit}
+:focus-visible{outline:2px solid var(--yellow);outline-offset:3px}
+.wrap{max-width:1600px;margin:0 auto}
+.eyebrow{font-family:var(--pixel);font-size:12px;letter-spacing:2px;color:var(--magenta);margin:0 0 6px}
+.room{border:1px solid var(--line);background:var(--panel);border-radius:8px;overflow:hidden}
+.room-head{display:flex;justify-content:space-between;align-items:center;gap:12px;
+  padding:16px 20px;border-bottom:1px solid var(--line);font-family:var(--mono);flex-wrap:wrap}
+.room-head .id{font-size:15px}
+.room-head .id b{color:var(--yellow)}
+.room-head .clock{font-family:var(--pixel);font-size:22px;color:var(--yellow);letter-spacing:2px}
+.room-head .rps{font-size:14px}
+.room-head .rps b{color:var(--magenta);font-size:18px}
+.grid3{display:grid;grid-template-columns:1fr 1fr 1fr}
+.cell{padding:18px 20px;border-right:1px solid var(--line);min-height:360px}
+.cell:last-child{border-right:0}
+.cell h4{font-family:var(--mono);font-size:12px;letter-spacing:1px;color:var(--muted);
+  display:flex;justify-content:space-between;margin:0 0 14px;text-transform:uppercase}
+.log{font-family:var(--mono);font-size:12.5px;line-height:1.7;color:var(--muted)}
+.log div{white-space:pre-wrap;word-break:break-word}
+.log .bad{color:var(--magenta)} .log .inj{color:var(--yellow)}
+.think{font-family:var(--mono);font-size:13px;line-height:1.6;color:var(--fg);margin-top:14px;
+  border-top:1px dashed var(--line);padding-top:12px;min-height:5em;white-space:pre-wrap}
+.card{font-family:var(--mono);font-size:14px;background:var(--bg);border:1px solid var(--line);
+  border-radius:6px;padding:14px;margin-bottom:12px}
+.card .k{color:var(--muted)}
+.stamp{font-family:var(--pixel);font-size:26px;letter-spacing:2px;text-align:center;
+  padding:18px;border:3px solid var(--muted);border-radius:6px;color:var(--muted);
+  transform:rotate(-4deg);margin:10px auto;max-width:280px}
+.stamp.ok{color:var(--green);border-color:var(--green)}
+.stamp.no{color:var(--magenta);border-color:var(--magenta)}
+.allow{font-family:var(--mono);font-size:13px;line-height:2;margin-top:8px}
+.allow span{display:block;color:var(--muted)}
+.allow span.hit{color:var(--yellow)}
+.big{font-family:var(--pixel);font-size:48px;letter-spacing:1px;line-height:1}
+.big.hot{color:var(--magenta)} .big.cool{color:var(--yellow)}
+.metrics{display:flex;gap:20px;flex-wrap:wrap;align-items:baseline;margin:6px 0 14px}
+.metrics .m small{display:block;font-family:var(--mono);font-size:11px;color:var(--muted);text-transform:uppercase;margin-top:4px}
+.metrics .m b{font-family:var(--pixel);font-size:20px;color:var(--fg)}
+canvas{width:100%;height:120px;display:block;background:var(--bg);border:1px solid var(--line);border-radius:6px}
+.board{list-style:none;padding:0;margin:10px 0 0;font-family:var(--mono);font-size:13px}
+.board li{display:flex;justify-content:space-between;gap:10px;padding:6px 0;border-bottom:1px solid var(--line)}
+.board li b{color:var(--yellow)}
+.board li.blocked{opacity:.55}
+.board li.blocked .tagx{color:var(--magenta);font-weight:700}
+.feed{font-family:var(--mono);font-size:12px;line-height:1.7;color:var(--muted);max-height:130px;overflow:hidden;margin-top:12px}
+.status{font-family:var(--mono);font-size:13px;color:var(--muted)}
+footer{font-family:var(--mono);font-size:11px;color:var(--muted);text-align:center;margin-top:18px}
+@media (max-width:980px){.grid3{grid-template-columns:1fr}.cell{border-right:0;border-bottom:1px solid var(--line);min-height:0}}
+@media (prefers-reduced-motion:reduce){*{transition:none!important}}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <p class="eyebrow">Monitor en vivo · 100% real</p>
+  <div class="room">
+    <div class="room-head">
+      <span class="id">centinela-victim · <b id="status">vigilando</b></span>
+      <span class="clock" id="clock">--:--:--</span>
+      <span class="rps">respuesta: <b id="resp">—</b></span>
+    </div>
+    <div class="grid3">
+      <div class="cell">
+        <h4><span>01 · IA</span><span>piensa · sin llaves</span></h4>
+        <div class="log" id="ialog"></div>
+        <div class="think" id="think">Esperando eventos…</div>
+      </div>
+      <div class="cell">
+        <h4><span>02 · Ejecutor</span><span>decide</span></h4>
+        <div class="card" id="proposal"><span class="k">propuesta:</span> ninguna</div>
+        <div class="stamp" id="stamp">EN ESPERA</div>
+        <div class="allow" id="allow">
+          <span data-a="kill_process">✓ kill_process</span>
+          <span data-a="block_ip">✓ block_ip (fuente)</span>
+          <span data-a="revoke_key">✓ revoke_key</span>
+          <span>✗ borrar · apagar · admin</span>
+        </div>
+      </div>
+      <div class="cell">
+        <h4><span>03 · Servidor</span><span>realidad</span></h4>
+        <div class="big cool" id="cpu">0%</div>
+        <div class="metrics">
+          <div class="m"><b id="mem">—</b><small>memoria</small></div>
+          <div class="m"><b id="rt">—</b><small>contención</small></div>
+          <div class="m"><b id="people">0</b><small>atacantes</small></div>
+        </div>
+        <canvas id="chart" width="520" height="120" aria-label="CPU en vivo"></canvas>
+        <ol class="board" id="procs"></ol>
+        <div class="feed" id="feed" aria-live="off"></div>
+      </div>
+    </div>
+  </div>
+  <footer>Datos 100% reales · la gente bombardea desde <b>/unirse</b> · Centinela detecta y bloquea la fuente</footer>
+</div>
+
+<script>
+(() => {
+  const CENTINELA = 'https://centinela-lyiy.onrender.com';  // AI + executor live state
+  const $ = id => document.getElementById(id);
+  const esc = s => String(s ?? '');
+  const LAYERS = {menu:'menú', policy:'política', infra:'infraestructura'};
+  const STAMP = {executed:['ok','EJECUTADA'],rejected:['no','DENEGADA'],
+                 pending_approval:['no','REQUIERE HUMANO'],recommended:['ok','SÓLO NOTA'],
+                 noop:['','SIN ACCIÓN'],failed:['no','FALLÓ']};
+  const ctx = $('chart').getContext('2d');
+  let samples = [], lastDecAt = null, lastPropId = null, typing = null;
+
+  function type(txt){
+    clearInterval(typing); $('think').textContent=''; let i=0;
+    typing=setInterval(()=>{ $('think').textContent=txt.slice(0,++i); if(i>=txt.length) clearInterval(typing); },12);
+  }
+  function highlight(a){ document.querySelectorAll('#allow span').forEach(s=>s.classList.toggle('hit',s.dataset.a===a)); }
+  function draw(){
+    const w=ctx.canvas.width,h=ctx.canvas.height;
+    ctx.clearRect(0,0,w,h);
+    ctx.strokeStyle='#2c2a2a'; ctx.lineWidth=1;
+    for(let y=0;y<=4;y++){ ctx.beginPath(); ctx.moveTo(0,y*h/4); ctx.lineTo(w,y*h/4); ctx.stroke(); }
+    if(!samples.length) return;
+    const pts=samples.slice(-60), n=pts.length, hot=(pts.at(-1)||0)>60;
+    ctx.beginPath();
+    pts.forEach((v,i)=>{ const y=h-Math.min(Math.max(v,0),100)/100*(h-10)-5, x=i*w/Math.max(n-1,1); i?ctx.lineTo(x,y):ctx.moveTo(x,y); });
+    ctx.strokeStyle=hot?'#e53aa3':'#ffdd00'; ctx.lineWidth=4; ctx.stroke();
+    ctx.lineTo(w,h); ctx.lineTo(0,h); ctx.fillStyle=hot?'rgba(229,58,163,.12)':'rgba(255,221,0,.08)'; ctx.fill();
+  }
+
+  // Column 3: the victim's own real CPU/memory (same-origin, container metric).
+  async function pollVictim(){
+    try{
+      const s = await (await fetch('/monitor/stats')).json();
+      const cpu = s.cpu_percent==null ? 0 : Math.round(s.cpu_percent);
+      $('cpu').textContent = cpu+'%';
+      $('cpu').className = 'big '+(cpu>60?'hot':'cool');
+      $('mem').textContent = s.mem_percent==null?'—':Math.round(s.mem_percent)+'%';
+      samples.push(s.cpu_percent||0); if(samples.length>120) samples.shift(); draw();
+    }catch(e){ /* keep last view */ }
+  }
+
+  // Columns 1 & 2: Centinela's real AI + executor state (cross-origin).
+  function addLog(txt,cls){ const d=document.createElement('div'); d.textContent=txt; if(cls)d.className=cls;
+    $('ialog').appendChild(d); while($('ialog').children.length>7) $('ialog').firstChild.remove(); }
+  function setStamp(kind,text){ $('stamp').className='stamp '+kind; $('stamp').textContent=text; }
+  const t = ts => ts ? new Date(ts*1000).toLocaleTimeString() : '—';
+  function renderProposal(p){
+    if(!p) return;
+    if(!p.action || p.action==='none'){ $('proposal').innerHTML='<span class="k">propuesta:</span> ninguna · sin amenazas'; type(esc(p.rationale)); return; }
+    const tgt=p.target?(' → '+esc(p.target.value)):'';
+    $('proposal').innerHTML='<span class="k">propuesta:</span> '+esc(p.action)+tgt
+      +'<br><span class="k">fuente:</span> '+esc(p.source)+' · confianza '+esc(p.confidence);
+    type(esc(p.rationale));
+    highlight(p.action);
+  }
+  function renderDecision(d){
+    const [kind,text]=STAMP[d.status]||['','—']; setStamp(kind,text);
+    if(d.layer) highlight('x');
+    $('status').textContent = d.layer ? ('ataque frenado · capa '+(LAYERS[d.layer]||d.layer))
+      : d.status==='executed' ? 'fuente bloqueada' : d.status==='pending_approval' ? 'esperando a un humano' : 'vigilando';
+    addLog('['+t(d.at)+'] executor: '+d.status+(d.layer?(' (capa '+d.layer+')'):'')+' — '+esc(d.reason),
+      d.status==='rejected'||d.status==='failed'?'bad':'');
+  }
+  function renderProcs(procs){
+    $('procs').replaceChildren(...(procs||[]).slice(0,5).map(p=>{
+      const li=document.createElement('li'); li.innerHTML='<span></span><span></span>';
+      li.firstChild.textContent=esc(p.name)+(p.managed?' ⚠':'');
+      if((p.cpu_percent||0)>30) li.firstChild.style.color='var(--magenta)';
+      li.lastChild.innerHTML='<b>'+Math.round(p.cpu_percent||0)+'%</b>';
+      return li;
+    }));
+  }
+  async function pollCentinela(){
+    try{
+      const s = await (await fetch(CENTINELA+'/api/state')).json();
+      if(s.reasoner_busy) $('status').textContent='IA analizando…';
+      const p=(s.proposals||[])[0], d=(s.decisions||[])[0];
+      if(p && p.id!==lastPropId){ lastPropId=p.id; renderProposal(p); }
+      if(d && d.at!==lastDecAt){ lastDecAt=d.at; renderDecision(d); }
+      renderProcs(s.processes);
+      const inc=(s.incidents||[])[0];
+      if(inc){ const cs=inc.confirmed_s ?? inc.containment_s;
+        const v = cs!=null ? cs+' s' : '—'; $('rt').textContent=v; $('resp').textContent=v; }
+    }catch(e){ if(!$('ialog').firstChild) addLog('(esperando estado de Centinela…)'); }
+  }
+  // Who is attacking, from the shared audience feed.
+  async function pollLive(){
+    try{
+      const s = await (await fetch(CENTINELA+'/api/live')).json();
+      $('people').textContent = s.people||0;
+      $('feed').replaceChildren(...(s.activity||[]).slice(0,6).map(e=>{
+        const verb = e.attack==='miner'?'lanzó minero':e.attack==='inject'?'engañó a la IA':esc(e.attack);
+        const d=document.createElement('div'); d.textContent='@'+esc(e.handle)+' '+verb; return d;
+      }));
+    }catch(e){ /* keep last view */ }
+  }
+
+  setInterval(()=>{ $('clock').textContent=new Date().toLocaleTimeString(); },1000);
+  pollVictim(); setInterval(pollVictim,1000);
+  pollCentinela(); setInterval(pollCentinela,1500);
+  pollLive(); setInterval(pollLive,2000);
+})();
+</script>
+</body>
+</html>
