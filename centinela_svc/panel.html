@@ -92,7 +92,8 @@ section{padding-block:72px}
 .orb-states button{cursor:pointer}.orb-states button[aria-pressed=true]{color:var(--yellow);border-color:var(--yellow)}
 .stage{display:flex;flex-direction:column;align-items:center;gap:22px;padding:22px 20px 28px;min-height:0;border:0;text-align:center}
 .stage-top{align-self:stretch;display:flex;justify-content:space-between;font-family:var(--mono);font-size:12px;letter-spacing:1.5px;text-transform:uppercase;color:var(--muted)}
-.stage .orb{width:min(280px,70vw);height:min(280px,70vw);padding:10px}
+.stage .orb{width:min(300px,72vw);height:min(300px,72vw);padding:0;background:none;box-shadow:none}
+.stage .orb canvas{border-radius:0;background:none;border:0}
 .stage .think{border:0;padding:0;max-width:640px;font-family:var(--display);font-size:22px;line-height:1.45;min-height:3em;flex:none}
 .hud{display:flex;align-items:center;justify-content:center;gap:28px;flex-wrap:wrap;border-top:1px solid var(--line);padding-top:18px;align-self:stretch}
 .hud .stamp{font-size:16px;padding:8px 12px;border-width:2px}
@@ -319,48 +320,63 @@ footer{border-top:1px solid var(--line);padding-block:32px;font-family:var(--mon
 </main>
 
 <script>
-/* Agent orb: WebGL swirl driven by state (idle / listening / talking) + browser TTS (Web Speech API). */
+/* Agent orb: soft cloud sphere (same look as the dashboard), driven by state + voice level. */
 const Orb=(()=>{
-  const el=document.getElementById('orb'), cv=document.getElementById('orbCanvas'), gl=cv.getContext('webgl');
-  const o={busy:false,talking:false,level:0};
+  const el=document.getElementById('orb'), cv=document.getElementById('orbCanvas'), gl=cv.getContext('webgl',{premultipliedAlpha:false});
+  const o={busy:false,talking:false,alert:false,analyser:null};
   function state(){ return o.talking?'talking':o.busy?'listening':'idle'; }
   function sync(){ const st=state(); el.dataset.state=st; document.querySelectorAll('.orb-states span').forEach(x=>x.classList.toggle('on',x.dataset.s===st)); }
   if(!gl){ setInterval(sync,200); return o; }
   const vs='attribute vec2 p;void main(){gl_Position=vec4(p,0.,1.);}';
   const fs=`precision mediump float;uniform vec2 r;uniform float t,e,hot;
-  void main(){vec2 uv=(gl_FragCoord.xy*2.-r)/r.y;float d=length(uv);if(d>1.)discard;
-   float a=atan(uv.y,uv.x),sw=a*3.+t*(.4+e*2.)-d*(2.5+e*3.);
-   float w=.5+.5*sin(sw+sin(d*6.-t*(1.+e*4.))*(.6+e));
-   vec3 c1=mix(vec3(.30,.45,.85),vec3(.90,.23,.64),hot),c2=mix(vec3(.75,.85,1.),vec3(1.,.87,.0),hot*.6);
-   vec3 col=mix(c1*.35,c2,w)*(1.-smoothstep(.85,1.,d)*.6)+(1.-d)*.15*e;
-   gl_FragColor=vec4(col,1.);}`;
+  float h(vec2 p){return fract(sin(dot(p,vec2(127.1,311.7)))*43758.5453);}
+  float n(vec2 p){vec2 i=floor(p),f=fract(p);f=f*f*(3.-2.*f);return mix(mix(h(i),h(i+vec2(1,0)),f.x),mix(h(i+vec2(0,1)),h(i+vec2(1,1)),f.x),f.y);}
+  float fbm(vec2 p){float v=0.,a=.5;for(int i=0;i<5;i++){v+=a*n(p);p=p*2.03+vec2(1.7,9.2);a*=.5;}return v;}
+  void main(){vec2 uv=(gl_FragCoord.xy*2.-r)/r.y;float R=.62+e*.1;float d=length(uv);
+   vec3 base=mix(vec3(.40,.47,1.),vec3(.95,.30,.62),hot),lite=mix(vec3(.86,.89,1.),vec3(1.,.86,.92),hot);
+   if(d>R){float g=exp(-(d-R)*(5.-e*2.))*(.28+e*.5);gl_FragColor=vec4(base*1.1,g);return;}
+   vec2 q=uv/R;float z=sqrt(max(1.-dot(q,q),0.));vec2 s=q/(1.+z)*1.6;
+   float c=fbm(s*2.2+vec2(t*.07,-t*.05)+fbm(s*3.+t*(.1+e*.6))*1.2);
+   vec3 col=mix(base,lite,smoothstep(.35,.85,c));col*=.75+.35*z;col+=pow(1.-z,3.)*.25*lite;
+   gl_FragColor=vec4(col,smoothstep(R,R-.01,d));}`;
   function sh(type,src){const x=gl.createShader(type);gl.shaderSource(x,src);gl.compileShader(x);return x;}
   const pr=gl.createProgram(); gl.attachShader(pr,sh(gl.VERTEX_SHADER,vs)); gl.attachShader(pr,sh(gl.FRAGMENT_SHADER,fs)); gl.linkProgram(pr); gl.useProgram(pr);
   gl.bindBuffer(gl.ARRAY_BUFFER,gl.createBuffer()); gl.bufferData(gl.ARRAY_BUFFER,new Float32Array([-1,-1,1,-1,-1,1,1,1]),gl.STATIC_DRAW);
   const loc=gl.getAttribLocation(pr,'p'); gl.enableVertexAttribArray(loc); gl.vertexAttribPointer(loc,2,gl.FLOAT,false,0,0);
   const U=n=>gl.getUniformLocation(pr,n), ur=U('r'),ut=U('t'),ue=U('e'),uh=U('hot');
-  let e=0,h=0;
+  gl.enable(gl.BLEND); gl.blendFunc(gl.SRC_ALPHA,gl.ONE_MINUS_SRC_ALPHA);
+  let e=0,h=0; const buf=new Uint8Array(64);
   (function frame(ms){
     sync();
-    const target=o.talking?.55+.45*Math.abs(Math.sin(ms/90)):o.busy?.35:.08;
-    e+=(target-e)*.08; h+=((o.talking?1:0)-h)*.05;
-    gl.viewport(0,0,cv.width,cv.height); gl.uniform2f(ur,cv.width,cv.height); gl.uniform1f(ut,ms/1000); gl.uniform1f(ue,e); gl.uniform1f(uh,h);
+    let lvl=.4+.3*Math.abs(Math.sin(ms/110));
+    if(o.talking&&o.analyser){ o.analyser.getByteFrequencyData(buf); lvl=buf.reduce((x,y)=>x+y,0)/buf.length/160; }
+    const target=o.talking?Math.min(lvl,1):o.busy?.25+.08*Math.sin(ms/300):.04+.03*Math.sin(ms/900);
+    e+=(target-e)*.15; h+=((o.alert?1:0)-h)*.04;
+    gl.viewport(0,0,cv.width,cv.height); gl.clearColor(0,0,0,0); gl.clear(gl.COLOR_BUFFER_BIT); gl.uniform2f(ur,cv.width,cv.height); gl.uniform1f(ut,ms/1000); gl.uniform1f(ue,e); gl.uniform1f(uh,h);
     gl.drawArrays(gl.TRIANGLE_STRIP,0,4); requestAnimationFrame(frame);
   })(0);
   return o;
 })();
 
-// TTS: browsers block speech until a user gesture, so the voice is opt-in via the button.
-let voiceOn=false, lastSpoken='';
+// TTS on by default. Browsers block audio until a user gesture, so a blocked line
+// is queued and plays on the first click or key press.
+let voiceOn=true, lastSpoken='', pendingLine=null, actx=null;
 const voiceBtn=document.getElementById('voiceBtn');
+voiceBtn.setAttribute('aria-pressed','true'); voiceBtn.textContent='🔊 Voz';
 voiceBtn.onclick=()=>{
   voiceOn=!voiceOn; voiceBtn.setAttribute('aria-pressed',voiceOn); voiceBtn.textContent=(voiceOn?'🔊':'🔇')+' Voz';
-  if(voiceOn) speak('Voz del agente activada.'); else stopVoice();
+  if(!voiceOn){ stopVoice(); pendingLine=null; }
 };
+function unlockVoice(){ if(pendingLine){ const t=pendingLine; pendingLine=null; speak(t); } }
+addEventListener('pointerdown',unlockVoice); addEventListener('keydown',unlockVoice);
 function speak(text){
-  if(!voiceOn || text===lastSpoken) return;
+  if(!voiceOn || !text || text===lastSpoken) return;
   lastSpoken=text; stopVoice();
-  edgeVoice(text.slice(0,280)).catch(()=>browserVoice(text.slice(0,280)));
+  if(/alerta/i.test(text)) Orb.alert=true;
+  edgeVoice(text.slice(0,280)).catch(err=>{
+    if(err && err.name==='NotAllowedError'){ pendingLine=text; lastSpoken=''; }
+    else browserVoice(text.slice(0,280));
+  });
 }
 // Edge natural voice via the backend (/api/tts); browser speech is the offline fallback.
 let audioEl=null;
@@ -369,9 +385,13 @@ async function edgeVoice(text){
   const r=await fetch('/api/tts',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({text})});
   if(!r.ok) throw new Error('tts '+r.status);
   const url=URL.createObjectURL(await r.blob()), a=new Audio(url); audioEl=a;
-  a.onplay=()=>Orb.talking=true; a.onended=a.onerror=()=>{ Orb.talking=false; URL.revokeObjectURL(url); };
+  a.onplay=()=>Orb.talking=true; a.onended=a.onerror=()=>{ Orb.talking=false; Orb.alert=false; URL.revokeObjectURL(url); };
   await a.play();
+  try{ actx=actx||new AudioContext(); await actx.resume(); const an=actx.createAnalyser(); an.fftSize=128;
+       actx.createMediaElementSource(a).connect(an); an.connect(actx.destination); Orb.analyser=an; }
+  catch(e){ Orb.analyser=null; }
 }
+speak('Hola. Soy Centinela. Estoy vigilando el servidor.');
 function browserVoice(text){
   if(!('speechSynthesis' in window)) return;
   const u=new SpeechSynthesisUtterance(text); u.lang='es-ES'; u.rate=1.05;
