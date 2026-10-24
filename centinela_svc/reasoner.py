@@ -75,7 +75,6 @@ def compact_snapshot(metrics: dict, limit: int = 25) -> dict:
                 "cpu_percent": p.get("cpu_percent"),
                 "age_s": round(now - p.get("create_time", now)),
                 "cmdline": " ".join(p.get("cmdline") or [])[:200],
-                "started_by_job_runner": bool(p.get("managed")),
             }
             for p in procs[:limit]
         ],

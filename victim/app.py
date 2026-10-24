@@ -53,6 +53,7 @@ def health() -> dict:
 def metrics() -> dict:
     with _lock:
         _reap_job()
+        job_pid = _job.pid if _job is not None else None
         seen: set[int] = set()
         processes = []
         for proc in psutil.process_iter():
@@ -77,6 +78,8 @@ def metrics() -> dict:
                         "username": cached.username(),
                         "cpu_percent": cached.cpu_percent(interval=None),
                         "create_time": cached.create_time(),
+                        # Allowlist signal: only job-runner children may be killed.
+                        "managed": pid == job_pid,
                     })
             except psutil.Error:
                 continue
