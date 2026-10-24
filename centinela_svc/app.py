@@ -34,7 +34,7 @@ AUDIT_DATABASE_URL = os.environ.get("AUDIT_DATABASE_URL")  # Postgres; falls bac
 EXECUTOR_DATABASE_URL = os.environ.get("EXECUTOR_DATABASE_URL")  # least-privilege role, case-2 actions
 OFFICE_CIDR = os.environ.get("OFFICE_CIDR", "203.0.113.0/24")  # never blocked
 APPROVER_TOKEN = os.environ.get("APPROVER_TOKEN", "")  # when set, required to resolve approvals
-TTS_VOICE = os.environ.get("TTS_VOICE", "es-AR-ElenaNeural")  # Edge neural voice
+TTS_VOICE = os.environ.get("TTS_VOICE", "es-CL-CatalinaNeural")  # Edge neural voice
 
 # Google login (single shared demo org). Auth is "configured" only when all three
 # secrets are set; otherwise /dashboard stays open in demo mode (pitch fallback).
