@@ -5,6 +5,7 @@ Endpoints:
   GET  /metrics  host CPU + process list (cpu_percent measured between calls)
   POST /jobs     exposed job runner (allowlisted scripts only) - the foothold
   POST /kill     SIGKILL a pid; requires X-Executor-Token
+Case 2 (SME API on Postgres, enabled by DATABASE_URL): see pyme.py.
 """
 import hmac
 import os
@@ -13,12 +14,15 @@ import subprocess
 import sys
 import threading
 import time
+from contextlib import asynccontextmanager
 from pathlib import Path
 
 import psutil
 from fastapi import FastAPI, Header
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel
+
+import pyme
 
 JOBS_DIR = Path(__file__).resolve().parent / "jobs"
 # Allowlist: job name -> extra argv. The fake pool string is an unused argv
@@ -28,7 +32,22 @@ JOB_ARGS = {
 }
 JOB_MAX_SECONDS = 600
 
-app = FastAPI(title="victim")
+
+
+@asynccontextmanager
+async def lifespan(_app: FastAPI):
+    dsn = os.environ.get("DATABASE_URL")
+    if dsn:
+        pyme.init(dsn)
+    try:
+        yield
+    finally:
+        pyme.close()
+
+
+app = FastAPI(title="victim", lifespan=lifespan)
+app.middleware("http")(pyme.middleware)
+app.include_router(pyme.router)
 
 _lock = threading.Lock()
 _job: subprocess.Popen | None = None
