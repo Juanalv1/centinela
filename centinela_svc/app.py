@@ -26,6 +26,7 @@ EXECUTOR_TOKEN = os.environ.get("EXECUTOR_TOKEN", "")
 MODEL = os.environ.get("MODEL", "claude-sonnet-5-5")
 POLL_SECONDS = float(os.environ.get("POLL_SECONDS", "2"))
 AUDIT_PATH = os.environ.get("AUDIT_PATH", "/tmp/centinela/audit.jsonl")
+AUDIT_DATABASE_URL = os.environ.get("AUDIT_DATABASE_URL")  # Postgres; falls back to AUDIT_PATH
 
 PANEL = (Path(__file__).resolve().parent / "panel.html").read_text(encoding="utf-8")
 monitor: Monitor | None = None
@@ -35,7 +36,7 @@ monitor: Monitor | None = None
 async def lifespan(_app: FastAPI):
     global monitor
     async with httpx.AsyncClient() as http:
-        audit = AuditLog(AUDIT_PATH)
+        audit = AuditLog(AUDIT_PATH, dsn=AUDIT_DATABASE_URL)
         reasoner = ClaudeReasoner(os.environ.get("ANTHROPIC_API_KEY"), MODEL)
         executor = Executor(VictimClient(VICTIM_URL, EXECUTOR_TOKEN, http), audit)
         monitor = Monitor(VICTIM_URL, POLL_SECONDS, reasoner, executor, http)
