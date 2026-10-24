@@ -17,9 +17,9 @@ Delivery: ask-on-risk; branch `feat/restart-persistence`, work-unit commits, mer
 
 ## Tasks
 
-- [ ] T1 Rehydrate Monitor history from the audit log at startup; seed proposal ids to max+1; unresolved `pending_approval` shown as expired, not re-queued; incidents rebuilt from kill_process + executed action_result. Route: delegated (writer trigger).
-- [ ] T2 Record incident facts (process name, cmdline, attack_start, detection_s, containment_s, confirmed_s) in the audit data going forward so restored incidents are complete. Route: delegated with T1.
-- [ ] T3 Persist `AudienceState` (participants, activity, board) in a separate `audience_event` table in the audit DB; rebuild on startup. Route: delegated.
+- [x] T1 Rehydrate Monitor history from the audit log at startup; seed proposal ids to max+1; unresolved `pending_approval` shown as expired, not re-queued; incidents rebuilt from kill_process + executed action_result. Route: delegated (writer trigger).
+- [x] T2 Record incident facts (process name, cmdline, attack_start, detection_s, containment_s, confirmed_s) in the audit data going forward so restored incidents are complete. Route: delegated with T1.
+- [x] T3 Persist `AudienceState` (participants, activity, board) in a separate `audience_event` table in the audit DB; rebuild on startup. Route: delegated.
 
 ## Acceptance
 
@@ -29,3 +29,9 @@ Delivery: ask-on-risk; branch `feat/restart-persistence`, work-unit commits, mer
 ## Progress
 
 - Exploration done (mapper): state inventory and recommendation recorded in conversation; branch created and published (the pull hook needs an upstream).
+- Baseline before changes: 164 passed.
+- T1-T3 implemented (uncommitted): `history.py` (replay), `Monitor.restore`, `domain.seed_ids`, `AuditLog.recent`, `AudienceStore` + `AudienceState.restore`, startup wiring in `app.py`, dashboard `expired` lane. T2 shape: new audit kind `incident` (open facts + a later confirmation row), merged by proposal_id on replay.
+- Verification: full suite 178 passed (164 baseline + 14 in `tests/test_restart_persistence.py`); disabling `seed_ids` made the id-collision tests fail (2 failed), then restored.
+- Route: delegated direct requested by parent; implemented inline by the assigned worker.
+- Not restored: pending approvals (shown as expired), CPU samples, baseline, SustainedCpu, KeyWatch, rate-limit timers, `Monitor._by_id`. Audience in JSONL mode stays in memory only.
+- Committed on the feature branch; next step: user decides on merge to main (deploys).

@@ -10,8 +10,9 @@ import os
 
 import httpx
 
-from domain import Decision, Proposal
+from domain import Decision, Proposal, Target, seed_ids
 from executor import Executor
+from history import replay
 from keywatch import KeyWatch
 from reasoner import ClaudeReasoner
 
@@ -107,6 +108,25 @@ class Monitor:
         self._keys_at = 0.0
         self._key_reasoned_at: dict[int, float] = {}
         self._lock = asyncio.Lock()  # serializes executor use (monitor + simulate)
+
+    def restore(self, entries: list[dict]) -> None:
+        """Refill the dashboard history from audit entries after a restart.
+
+        Not restored: pending approvals (their pids are gone: shown as expired and
+        audited as such), CPU samples, the baseline and the key watch.
+        """
+        past = replay(entries)
+        seed_ids(past["max_id"])
+        for item in past["proposals"]:
+            self.proposals.appendleft(item)
+        for item in past["decisions"]:
+            self.decisions.appendleft(item)
+        for item in past["unresolved"]:
+            target = Target(**item["target"]) if item.get("target") else None
+            expired = Decision(item["proposal_id"], "expired", "reinicio del servicio", target=target)
+            self.executor.audit.append("decision", expired.to_dict())
+            self.decisions.appendleft(expired.to_dict())
+        self.incidents = past["incidents"]
 
     async def run(self) -> None:
         while True:
@@ -220,7 +240,8 @@ class Monitor:
         pid = int(proposal.target.value)
         proc = next((p for p in (self.latest or {}).get("processes", []) if p["pid"] == pid), {})
         start = proc.get("create_time", proposal.created_at) + self.clock_offset
-        self.incidents.insert(0, {
+        incident = {
+            "proposal_id": proposal.id,
             "pid": pid,
             "name": proc.get("name"),
             "cmdline": " ".join(proc.get("cmdline") or []),
@@ -231,13 +252,26 @@ class Monitor:
             "detection_s": round(proposal.created_at - start, 2),
             "containment_s": round(decision.at - start, 2),
             "model_latency_s": proposal.latency_s,
-        })
+        }
+        self.incidents.insert(0, incident)
+        # Audited so a restart can rebuild the incident (gone_confirmed_at/confirmed_s come later).
+        self._audit_incident({k: v for k, v in incident.items() if k != "gone_confirmed_at"})
+
+    def _audit_incident(self, facts: dict) -> None:
+        try:
+            self.executor.audit.append("incident", facts)
+        except Exception as exc:  # the incident is already shown; a lost audit row must not break the loop
+            log.warning("incident audit failed: %s", exc)
 
     def _confirm_kills(self, pids: set[int], now: float) -> None:
         for inc in self.incidents:
+            if inc.get("restored"):
+                continue  # the pid may belong to another process by now
             if inc["gone_confirmed_at"] is None and inc["pid"] not in pids:
                 inc["gone_confirmed_at"] = now
                 inc["confirmed_s"] = round(now - inc["attack_start"], 2)
+                self._audit_incident({"proposal_id": inc.get("proposal_id"), "pid": inc["pid"],
+                                      "gone_confirmed_at": now, "confirmed_s": inc["confirmed_s"]})
 
     def state(self) -> dict:
         return {
