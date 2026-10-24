@@ -37,3 +37,4 @@ Archivos: `centinela_svc/reasoner.py`, `centinela_svc/monitor.py`, `centinela_sv
 - Ramas cortas (`feat/...`) y PR a `main`. **Render despliega automáticamente cada push a `main`**, así que no suban código roto ahí.
 - Secretos solo en variables de entorno (Render o `.env` local); nunca en el repo.
 - Integración juntos cuando A tenga la víctima del caso 2 y B el razonador.
+- Si un push a `main` no aparece en Render en ~1 min, usar **Manual Deploy → Deploy latest commit** en el dashboard.
