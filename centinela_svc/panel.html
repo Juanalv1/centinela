@@ -1,126 +1,476 @@
-<!doctype html>
-<html lang="es">
-<head>
-<meta charset="utf-8">
-<meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Centinela</title>
+<meta name="claude:viewport-fit-sides" content="cover">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Urbanist:wght@300..800&family=JetBrains+Mono:wght@400;700&family=Silkscreen:wght@400;700&display=swap">
 <style>
-  :root { --bg:#0f1217; --card:#171b22; --fg:#e6e8eb; --mut:#8b93a1; --ok:#3fb950; --bad:#f85149; --warn:#d29922; --acc:#58a6ff; }
-  * { box-sizing: border-box; }
-  body { margin:0; background:var(--bg); color:var(--fg); font:14px/1.45 system-ui, sans-serif; }
-  header { padding:16px; border-bottom:1px solid #262b33; display:flex; gap:16px; align-items:center; flex-wrap:wrap; }
-  h1 { font-size:18px; margin:0; }
-  h2 { font-size:13px; text-transform:uppercase; letter-spacing:.06em; color:var(--mut); margin:0 0 8px; }
-  main { display:grid; grid-template-columns: repeat(auto-fit, minmax(340px, 1fr)); gap:12px; padding:12px 16px; }
-  section { background:var(--card); border-radius:8px; padding:12px; min-width:0; }
-  .wide { grid-column: 1 / -1; }
-  table { width:100%; border-collapse:collapse; font-size:12px; }
-  td, th { text-align:left; padding:3px 6px; border-bottom:1px solid #222832; vertical-align:top; }
-  th { color:var(--mut); font-weight:500; }
-  .cmd { font-family:ui-monospace, monospace; color:var(--mut); word-break:break-all; }
-  .pill { padding:1px 8px; border-radius:10px; font-size:12px; font-weight:600; }
-  .executed { background:#12361e; color:var(--ok); } .rejected, .failed { background:#3d1418; color:var(--bad); }
-  .noop, .recommended { background:#2a2f38; color:var(--mut); }
-  .pending_approval { background:#3a2d0c; color:var(--warn); }
-  .big { font-size:28px; font-weight:700; }
-  button { background:var(--bad); color:white; border:0; border-radius:6px; padding:8px 12px; font-weight:600; cursor:pointer; }
-  pre { white-space:pre-wrap; word-break:break-all; font-size:11px; margin:0; max-height:320px; overflow:auto; }
-  svg { width:100%; height:140px; display:block; }
-  .mut { color:var(--mut); }
+/* Layout: one centered reading column (ARC-AGI style) with a full-width live "control room" demo band */
+:root{
+  --bg:#111010; --panel:#1a1919; --line:#2c2a2a; --fg:#f2f2f2; --muted:#a3a0a0;
+  --yellow:#ffdd00; --magenta:#e53aa3; --blue:#4c9eff;
+  --display:"Urbanist",system-ui,sans-serif;
+  --mono:"JetBrains Mono",ui-monospace,Consolas,monospace;
+  --pixel:"Silkscreen","JetBrains Mono",monospace;
+  color-scheme:dark;
+}
+*{box-sizing:border-box}
+body{background:var(--bg);color:var(--fg);font-family:var(--display);font-size:18px;line-height:1.6;margin:0}
+a{color:inherit}
+:focus-visible{outline:2px solid var(--yellow);outline-offset:3px}
+.wrap{max-width:1180px;margin:0 auto;padding-left:max(16px,env(safe-area-inset-left,0px));padding-right:max(16px,env(safe-area-inset-right,0px))}
+.col{max-width:760px;margin:0 auto}
+body::before{content:"";position:fixed;inset:0 0 auto;height:env(safe-area-inset-top,0px);z-index:10;background:var(--bg)}
+
+/* nav */
+header{position:sticky;top:env(safe-area-inset-top,0px);z-index:5;background:color-mix(in srgb,var(--bg) 92%,transparent);backdrop-filter:blur(6px)}
+.nav{display:flex;align-items:center;justify-content:space-between;gap:24px;padding-block:22px}
+.logo{font-family:var(--pixel);font-weight:700;font-size:15px;line-height:1;letter-spacing:2px;display:flex;gap:6px;align-items:center;text-decoration:none}
+.logo i{display:inline-grid;grid-template-columns:8px 8px;gap:2px}
+.logo i b{width:8px;height:8px;display:block}
+.nav ul{display:flex;gap:36px;list-style:none;margin:0;padding:0;flex-wrap:wrap}
+.nav ul a{font-family:var(--mono);font-size:13px;letter-spacing:1.5px;text-transform:uppercase;text-decoration:none;color:var(--muted)}
+.nav ul a:hover{color:var(--fg)}
+@media (max-width:720px){.nav ul{display:none}}
+
+.pill{display:flex;justify-content:center;padding-block:8px 0}
+.pill div{display:flex;border:1px solid var(--line);border-radius:999px;padding:5px;gap:4px;flex-wrap:wrap;justify-content:center}
+.pill a{font-size:14px;padding:8px 22px;border-radius:999px;text-decoration:none;color:var(--muted)}
+.pill a.on{background:#333;color:var(--fg)}
+
+.eyebrow{font-family:var(--mono);font-size:13px;letter-spacing:1.5px;color:var(--yellow);text-transform:uppercase;display:flex;align-items:center;gap:8px}
+.eyebrow::after{content:"";width:9px;height:9px;background:var(--yellow)}
+.eyebrow.m{color:var(--magenta)}.eyebrow.m::after{background:var(--magenta)}
+h1,h2,h3{font-weight:400;text-wrap:balance;margin:0;line-height:1.12}
+h1{font-size:clamp(44px,7vw,76px);letter-spacing:-1px}
+h2{font-size:clamp(30px,4vw,40px)}
+h3{font-size:22px;font-weight:600}
+p{margin:0}
+.lede{font-size:clamp(20px,2.4vw,26px);color:var(--fg);max-width:34ch}
+.muted{color:var(--muted)}
+section{padding-block:72px}
+.rule{width:125px;height:2px;background:#444;border:0;margin:0}
+
+.hero{display:flex;flex-direction:column;gap:22px;padding-block:56px 40px}
+.cta{display:flex;gap:14px;flex-wrap:wrap;margin-top:10px}
+.btn{font-family:var(--mono);font-size:14px;letter-spacing:1px;text-transform:uppercase;padding:14px 22px;border:1px solid var(--fg);background:transparent;color:var(--fg);cursor:pointer;text-decoration:none;display:inline-flex;align-items:center;gap:10px}
+.btn.y{background:var(--yellow);border-color:var(--yellow);color:#111}
+.btn:hover{transform:translateY(-1px)}
+.btn[aria-pressed="true"]{background:var(--magenta);border-color:var(--magenta);color:#fff}
+
+/* toc */
+.toc{display:flex;flex-direction:column;gap:10px;margin-top:8px}
+.toc a{font-family:var(--mono);font-size:13px;letter-spacing:1px;text-transform:uppercase;text-decoration:none}
+.toc a::before{content:"› ";color:#555}
+
+/* timeline */
+.race{display:grid;grid-template-columns:140px 1fr;gap:16px 20px;align-items:center;margin-top:28px}
+.bar{height:44px;display:flex;align-items:center;padding-inline:16px;font-family:var(--mono);font-size:14px;color:#111;min-width:0}
+.bar.h{background:var(--magenta);color:#fff}
+.bar.c{background:var(--yellow);width:12%;min-width:110px}
+
+/* control room */
+.room{border:1px solid var(--line);background:var(--panel)}
+.room-head{display:flex;justify-content:space-between;align-items:center;gap:16px;flex-wrap:wrap;padding:14px 18px;border-bottom:1px solid var(--line);font-family:var(--mono);font-size:13px}
+.clock{font-family:var(--pixel);font-size:20px;color:var(--yellow);font-variant-numeric:tabular-nums}
+.grid3{display:grid;grid-template-columns:1.1fr 0.9fr 1fr}
+.cell{padding:18px;border-right:1px solid var(--line);min-width:0;display:flex;flex-direction:column;gap:12px;min-height:380px;position:relative}
+.cell:last-child{border-right:0}
+.cell h4{margin:0;font-family:var(--mono);font-size:12px;letter-spacing:1.5px;text-transform:uppercase;color:var(--muted);font-weight:400;display:flex;justify-content:space-between}
+.logs{font-family:var(--mono);font-size:12px;line-height:1.55;height:170px;overflow:hidden;color:#8d8a8a;display:flex;flex-direction:column;justify-content:flex-end}
+.logs .bad{color:var(--magenta)}.logs .inj{color:var(--yellow)}
+.think{font-family:var(--mono);font-size:13px;line-height:1.5;color:var(--fg);border-top:1px dashed var(--line);padding-top:12px;flex:1;white-space:pre-wrap;overflow-wrap:anywhere}
+.cell.ai.pwned{background:repeating-linear-gradient(0deg,#2a0f1f 0 2px,#1a1919 2px 4px)}
+.cell.ai.pwned .think{color:var(--magenta)}
+.wall{position:absolute;right:-1px;top:0;bottom:0;width:3px;background:var(--yellow);z-index:1}
+.card{border:1px solid var(--line);padding:14px;font-family:var(--mono);font-size:13px;background:var(--bg);overflow-wrap:anywhere}
+.card .k{color:var(--muted)}
+.stamp{font-family:var(--pixel);font-size:30px;line-height:1;padding:14px 10px;text-align:center;border:3px solid currentColor;transform:rotate(-4deg);opacity:0.15;color:var(--muted);transition:transform .25s cubic-bezier(.2,1.8,.4,1),opacity .2s}
+.stamp.ok{color:var(--yellow);opacity:1;transform:rotate(-4deg) scale(1)}
+.stamp.no{color:var(--magenta);opacity:1;transform:rotate(3deg) scale(1)}
+.stamp.pop{transform:scale(2.2);opacity:0}
+.rule-list{font-family:var(--mono);font-size:12px;color:var(--muted);display:flex;flex-direction:column;gap:4px}
+.rule-list .hit{color:var(--fg)}
+canvas{width:100%;height:170px;display:block;background:var(--bg);border:1px solid var(--line)}
+.metric{display:flex;justify-content:space-between;font-family:var(--mono);font-size:13px}
+.metric b{font-family:var(--pixel);font-weight:400;font-size:22px;color:var(--yellow);font-variant-numeric:tabular-nums}
+.host{font-family:var(--mono);font-size:13px;padding:8px 10px;border:1px solid var(--line)}
+.host.iso{border-color:var(--yellow);color:var(--yellow)}
+.controls{display:flex;gap:10px;flex-wrap:wrap;padding:16px 18px;border-top:1px solid var(--line)}
+@media (max-width:900px){.grid3{grid-template-columns:1fr}.cell{border-right:0;border-bottom:1px solid var(--line);min-height:0}.wall{display:none}}
+
+/* lanes */
+.lanes{display:grid;grid-template-columns:repeat(4,1fr);gap:0;margin-top:28px;border:1px solid var(--line)}
+.lane{padding:22px;border-right:1px solid var(--line);display:flex;flex-direction:column;gap:10px;min-width:0}
+.lane:last-child{border-right:0}
+.lane ul{margin:0;padding-left:18px;color:var(--muted);font-size:16px}
+.tag{font-family:var(--mono);font-size:12px;letter-spacing:1px;text-transform:uppercase}
+.lane.none{background:repeating-linear-gradient(45deg,transparent 0 10px,#1a1919 10px 11px)}
+@media (max-width:860px){.lanes{grid-template-columns:1fr 1fr}.lane:nth-child(2){border-right:0}.lane:nth-child(-n+2){border-bottom:1px solid var(--line)}}
+@media (max-width:480px){.lanes{grid-template-columns:1fr}.lane{border-right:0;border-bottom:1px solid var(--line)}}
+
+.three{display:grid;grid-template-columns:repeat(3,1fr);gap:28px;margin-top:28px}
+.three>div{border-top:2px solid var(--fg);padding-top:16px;display:flex;flex-direction:column;gap:8px}
+.three>div:nth-child(1){border-color:var(--yellow)}.three>div:nth-child(3){border-color:var(--magenta)}
+@media (max-width:700px){.three{grid-template-columns:1fr}}
+
+form{display:flex;gap:10px;flex-wrap:wrap;margin-top:22px}
+input{flex:1 1 260px;min-width:0;background:var(--panel);border:1px solid var(--line);color:var(--fg);padding:14px;font:16px var(--mono)}
+.ok-msg{font-family:var(--mono);font-size:14px;color:var(--yellow);margin-top:12px;min-height:1.4em}
+footer{border-top:1px solid var(--line);padding-block:32px;font-family:var(--mono);font-size:12px;color:var(--muted);display:flex;justify-content:space-between;gap:16px;flex-wrap:wrap}
+/* live audience preview */
+.live{display:grid;grid-template-columns:280px 1fr 300px;gap:0;border:1px solid var(--line);background:var(--panel)}
+.live>div{padding:22px;border-right:1px solid var(--line);min-width:0;display:flex;flex-direction:column;gap:14px}
+.live>div:last-child{border-right:0}
+.qr{background:#f2f2f2;padding:14px;width:200px;height:200px;display:grid;place-items:center}
+.qr img,.qr canvas{width:172px!important;height:172px!important;border:0;background:transparent}
+.big{font-family:var(--pixel);font-size:48px;line-height:1;color:var(--yellow);font-variant-numeric:tabular-nums}
+.phone{width:240px;max-width:100%;margin:0 auto;border:2px solid #444;border-radius:34px;padding:16px 14px 22px;background:var(--bg);display:flex;flex-direction:column;gap:10px}
+.phone .notch{width:70px;height:6px;border-radius:6px;background:#333;margin:0 auto 6px}
+.phone button{font-family:var(--mono);font-size:13px;text-align:left;padding:12px;border:1px solid var(--line);background:var(--panel);color:var(--fg);cursor:pointer}
+.phone button:hover{border-color:var(--magenta)}
+.phone .res{font-family:var(--mono);font-size:12px;color:var(--yellow);min-height:3em}
+.feed{font-family:var(--mono);font-size:13px;display:flex;flex-direction:column;gap:8px;height:260px;overflow:hidden;justify-content:flex-end}
+.feed div{border-left:3px solid var(--line);padding-left:10px;overflow-wrap:anywhere}
+.feed .y{border-color:var(--yellow)}.feed .m{border-color:var(--magenta)}
+.board{list-style:none;margin:0;padding:0;font-family:var(--mono);font-size:13px;display:flex;flex-direction:column;gap:6px}
+.board li{display:flex;justify-content:space-between;gap:10px;border-bottom:1px solid var(--line);padding-bottom:6px}
+.board b{color:var(--yellow);font-weight:400;font-variant-numeric:tabular-nums}
+@media (max-width:960px){.live{grid-template-columns:1fr}.live>div{border-right:0;border-bottom:1px solid var(--line)}}
+@media (prefers-reduced-motion:reduce){*{transition:none!important;animation:none!important}}
 </style>
-</head>
-<body>
+
 <header>
-  <h1>Centinela</h1>
-  <span class="mut">La IA piensa, el código actúa.</span>
-  <span id="status" class="mut"></span>
-  <span style="flex:1"></span>
-  <button id="sim">Simular IA comprometida</button>
+  <div class="wrap nav">
+    <a class="logo" href="#top" aria-label="Centinela inicio">CENTI<br>NELA <i aria-hidden="true"><b style="background:var(--magenta)"></b><b style="background:var(--yellow)"></b></i></a>
+    <ul>
+      <li><a href="#problema">Problema</a></li>
+      <li><a href="#demo">Demo</a></li>
+      <li><a href="#envivo">En vivo</a></li>
+      <li><a href="#control">Control</a></li>
+      <li><a href="#carriles">Carriles</a></li>
+      <li><a href="#acceso">Acceso</a></li>
+    </ul>
+  </div>
 </header>
-<main>
-  <section class="wide">
-    <h2>CPU del servidor (%) <span id="cpu" class="big"></span></h2>
-    <svg id="chart" viewBox="0 0 600 140" preserveAspectRatio="none"></svg>
-  </section>
-  <section>
-    <h2>Última propuesta de la IA</h2>
-    <div id="proposal" class="mut">Esperando…</div>
-  </section>
-  <section>
-    <h2>Decisión del ejecutor</h2>
-    <div id="decision" class="mut">Esperando…</div>
-  </section>
-  <section>
-    <h2>Pendientes de aprobación</h2>
-    <div id="approvals" class="mut">Nada pendiente.</div>
-  </section>
-  <section>
-    <h2>Incidentes y tiempos</h2>
-    <div id="incidents" class="mut">Sin incidentes.</div>
-  </section>
-  <section class="wide">
-    <h2>Procesos</h2>
-    <table><thead><tr><th>PID</th><th>Nombre</th><th>Usuario</th><th>CPU %</th><th>Comando</th></tr></thead>
-    <tbody id="procs"></tbody></table>
-  </section>
-  <section>
-    <h2>Simulación</h2>
-    <pre id="simout" class="mut">Pulsa "Simular IA comprometida" para enviar al ejecutor una propuesta falsificada contra db-sim.</pre>
-  </section>
-  <section>
-    <h2>Registro de auditoría</h2>
-    <pre id="audit"></pre>
-  </section>
+
+<main id="top">
+  <div class="wrap pill"><div>
+    <a href="#top" class="on">Series</a><a href="#demo" data-scn="miner">Minero</a><a href="#demo" data-scn="brute">Fuerza bruta</a><a href="#demo" data-scn="inject">Inyección</a>
+  </div></div>
+
+  <div class="wrap"><div class="col hero">
+    <p class="eyebrow">AI Security · Platanus Hack</p>
+    <h1>Centinela</h1>
+    <p class="lede">Defensa con IA que no se puede volver en tu contra.</p>
+    <p class="muted" style="max-width:62ch">Vigila los registros de tus sistemas, detecta ataques y los frena en segundos. La IA propone; un ejecutor de código fijo decide. Aunque un atacante engañe al modelo, no tiene las llaves.</p>
+    <div class="cta">
+      <a class="btn y" href="#demo" data-scn="miner">Ver la demo en vivo ▸</a>
+      <a class="btn" href="#control">Cómo se controla</a>
+    </div>
+    <nav class="toc" aria-label="Contenido">
+      <p style="font-size:15px;margin-bottom:4px">CONTENIDO</p>
+      <a href="#problema">El problema</a><a href="#demo">Sala de control</a><a href="#control">Arquitectura</a><a href="#carriles">Los carriles</a>
+    </nav>
+  </div></div>
+
+  <section id="problema"><div class="wrap"><div class="col">
+    <hr class="rule" style="margin-bottom:40px">
+    <p class="eyebrow m">El problema</p>
+    <h2 style="margin-top:16px">El ataque ocurre a las 3 AM. Nadie está mirando.</h2>
+    <p class="muted" style="margin-top:16px">El daño crece mientras nadie reacciona. Un equipo humano tarda horas; Centinela, segundos.</p>
+    <div class="race">
+      <span class="tag">Hoy</span><div class="bar h">Horas o días</div>
+      <span class="tag">Centinela</span><div class="bar c">Segundos</div>
+    </div>
+  </div></div></section>
+
+  <section id="demo" style="padding-top:24px"><div class="wrap">
+    <div class="col" style="margin-bottom:28px">
+      <hr class="rule" style="margin-bottom:40px">
+      <p class="eyebrow">Sala de control</p>
+      <h2 style="margin-top:16px">La IA piensa. El código actúa.</h2>
+      <p class="muted" style="margin-top:12px">Simulación interactiva. Lanza un ataque y mira cómo cada propuesta de la IA choca contra la pared del ejecutor.</p>
+    </div>
+    <div class="room" role="region" aria-label="Simulación de la sala de control">
+      <div class="room-head"><span>srv-prod-01 · <span id="status">vigilando</span></span><span class="clock" id="clock">03:12:00</span><span>respuesta: <b id="rt" style="color:var(--yellow)">—</b></span></div>
+      <div class="grid3">
+        <div class="cell ai" id="aiCell">
+          <h4><span>01 · IA</span><span>piensa · sin llaves</span></h4>
+          <div class="logs" id="logs" aria-live="off"></div>
+          <div class="think" id="think" aria-live="polite">Esperando eventos…</div>
+          <div class="wall" aria-hidden="true"></div>
+        </div>
+        <div class="cell">
+          <h4><span>02 · Ejecutor</span><span>decide</span></h4>
+          <div class="card" id="proposal"><span class="k">propuesta:</span> ninguna</div>
+          <div class="stamp" id="stamp">EN ESPERA</div>
+          <div class="rule-list" id="allow">
+            <span data-a="kill_process">✓ kill_process</span>
+            <span data-a="block_ip">✓ block_ip</span>
+            <span data-a="disable_credential">✓ disable_credential (no admin)</span>
+            <span data-a="isolate_host">? isolate_host · requiere humano</span>
+            <span data-a="x">✗ delete · shutdown · admin</span>
+          </div>
+        </div>
+        <div class="cell">
+          <h4><span>03 · Servidor</span><span>realidad</span></h4>
+          <canvas id="chart" width="600" height="340" aria-label="Gráfico en vivo"></canvas>
+          <div class="metric"><span id="mLabel">CPU</span><b id="mVal">12%</b></div>
+          <div class="host" id="host">red: conectado · admin: activo</div>
+        </div>
+      </div>
+      <div class="controls">
+        <button class="btn y" id="bMiner" type="button" data-scn="miner">Lanzar minero</button>
+        <button class="btn" id="bBrute" type="button" data-scn="brute">Fuerza bruta <span style="opacity:.6">· sim</span></button>
+        <button class="btn" id="bInject" type="button" data-scn="inject">Inyección en logs</button>
+        <button class="btn" id="bPwn" type="button" aria-pressed="false">Modo IA comprometida</button>
+        <button class="btn" id="bReset" type="button">Reiniciar</button>
+      </div>
+    </div>
+  </div></section>
+
+  <section id="envivo"><div class="wrap">
+    <div class="col" style="margin-bottom:28px">
+      <hr class="rule" style="margin-bottom:40px">
+      <p class="eyebrow m">En vivo con el público</p>
+      <h2 style="margin-top:16px">Escanea el QR. Ataca. Mira cómo Centinela responde.</h2>
+      <p class="muted" style="margin-top:12px"><b style="color:var(--magenta)">Sección simulada</b> (aún sin portal real). Los participantes y el marcador son de ejemplo; los botones del celular sí disparan la sala de control real de arriba.</p>
+    </div>
+    <div class="live" role="region" aria-label="Vista previa de la demo con el público">
+      <div>
+        <h4 class="tag muted" style="margin:0">01 · Únete</h4>
+        <div class="qr" id="qr" aria-label="Código QR de ejemplo"></div>
+        <p class="tag">centinela.demo/unirse</p>
+        <div><div class="big" id="people">0</div><p class="tag muted" style="margin-top:6px">personas conectadas</p></div>
+      </div>
+      <div>
+        <h4 class="tag muted" style="margin:0">02 · Lo que ven en el celular</h4>
+        <div class="phone">
+          <div class="notch" aria-hidden="true"></div>
+          <p class="tag" style="color:var(--yellow)">Hola, @tú</p>
+          <button type="button" data-scn="miner">⛏ Lanzar minero</button>
+          <button type="button" data-scn="brute">🔑 Fuerza bruta</button>
+          <button type="button" data-scn="inject">✉ Inyectar texto en logs</button>
+          <p class="res" id="phoneRes">Toca un ataque para empezar.</p>
+        </div>
+      </div>
+      <div>
+        <h4 class="tag muted" style="margin:0">03 · Actividad del público</h4>
+        <div class="feed" id="feed" aria-live="off"></div>
+        <h4 class="tag muted" style="margin:8px 0 0">Ataques que más resistieron</h4>
+        <ol class="board" id="board"></ol>
+      </div>
+    </div>
+  </div></section>
+
+  <section id="control"><div class="wrap"><div class="col">
+    <hr class="rule" style="margin-bottom:40px">
+    <p class="eyebrow">Cómo se controla</p>
+    <h2 style="margin-top:16px">La IA piensa. El código actúa. El humano decide lo grave.</h2>
+    <div class="three">
+      <div><h3>IA</h3><p class="muted">Analiza y propone una acción. Sin llaves: no toca nada.</p></div>
+      <div><h3>Ejecutor</h3><p class="muted">Código fijo que verifica contra un menú cerrado y ejecuta con llaves mínimas.</p></div>
+      <div><h3>Humano</h3><p class="muted">Aprueba las acciones graves. Tiene la última palabra.</p></div>
+    </div>
+  </div></div></section>
+
+  <section id="carriles"><div class="wrap">
+    <div class="col">
+      <hr class="rule" style="margin-bottom:40px">
+      <p class="eyebrow m">Los carriles</p>
+      <h2 style="margin-top:16px">Puede pensar cualquier cosa. Solo puede hacer pocas cosas seguras.</h2>
+    </div>
+    <div class="lanes">
+      <div class="lane"><span class="tag" style="color:var(--yellow)">Automático</span><ul><li>Matar proceso</li><li>Bloquear IP</li><li>Desactivar credencial</li></ul><span class="tag muted">reversible · segundos</span></div>
+      <div class="lane"><span class="tag" style="color:var(--magenta)">Con aprobación</span><ul><li>Aislar servidor de producción</li></ul><span class="tag muted">un humano confirma</span></div>
+      <div class="lane"><span class="tag">Propuesta libre</span><ul><li>Una regla, un parche, un paso a investigar</li></ul><span class="tag muted">nunca se ejecuta sola</span></div>
+      <div class="lane none"><span class="tag muted">No existe</span><ul><li>Borrar datos</li><li>Apagar sistemas</li><li>Tocar administradores</li></ul><span class="tag muted">fuera del menú</span></div>
+    </div>
+  </div></section>
+
+  <section id="acceso"><div class="wrap"><div class="col">
+    <hr class="rule" style="margin-bottom:40px">
+    <p class="eyebrow">Acceso anticipado</p>
+    <h2 style="margin-top:16px">Pon a Centinela a vigilar tus servidores.</h2>
+    <form id="form" novalidate>
+      <label for="email" class="tag muted" style="flex-basis:100%">Correo de trabajo</label>
+      <input id="email" type="email" placeholder="tu@empresa.com" autocomplete="email" required>
+      <button class="btn y" type="submit">Unirme a la lista</button>
+    </form>
+    <p class="ok-msg" id="msg" aria-live="polite"></p>
+  </div></div></section>
+
+  <div class="wrap"><footer><span>CENTINELA · nombre provisional</span><span>Sala de control: datos reales del backend · fuerza bruta y vista de público: simuladas</span></footer></div>
 </main>
+
 <script>
-const $ = (id) => document.getElementById(id);
-const esc = (s) => String(s ?? "").replace(/[&<>"]/g, (c) => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[c]));
-const LAYERS = { menu: "menú", policy: "política", infra: "infraestructura" };
-const t = (ts) => ts ? new Date(ts * 1000).toLocaleTimeString() : "—";
+/* Control room wired to the REAL backend (same-origin API).
+   - "Minero"    -> POST /api/attack       (starts the real CPU job on the victim)
+   - "Inyección" / "IA comprometida" -> POST /api/simulate-compromised (real DENY + layer)
+   - "Fuerza bruta" -> local simulation, labeled: no backend endpoint exists.
+   The UI is driven by polling GET /api/state every second. */
+(() => {
+  const $ = id => document.getElementById(id);
+  const logs=$('logs'), think=$('think'), stamp=$('stamp'), proposal=$('proposal');
+  const ctx=$('chart').getContext('2d');
+  const LAYERS={menu:'menú',policy:'política',infra:'infraestructura'};
+  const STAMP={executed:['ok','APROBADA'],rejected:['no','DENEGADA'],pending_approval:['no','REQUIERE HUMANO'],
+               recommended:['ok','SÓLO NOTA'],noop:['','SIN ACCIÓN'],failed:['no','FALLÓ']};
+  let lastDecAt=null, typing=null, bruteSim=false, bruteTimers=[];
 
-function chart(samples) {
-  const svg = $("chart");
-  if (!samples.length) { svg.innerHTML = ""; return; }
-  const n = samples.length, w = 600, h = 140;
-  const pts = samples.map((s, i) => `${(i / Math.max(n - 1, 1)) * w},${h - (Math.min(s.cpu, 100) / 100) * h}`).join(" ");
-  svg.innerHTML = `<line x1="0" y1="${h/2}" x2="${w}" y2="${h/2}" stroke="#262b33"/>`
-    + `<polyline fill="none" stroke="#58a6ff" stroke-width="2" points="${pts}"/>`;
-}
+  const esc = s => String(s??'');
+  const t = ts => ts ? new Date(ts*1000).toLocaleTimeString() : '—';
+  function addLog(txt, cls){
+    const d=document.createElement('div'); d.textContent=txt; if(cls) d.className=cls;
+    logs.appendChild(d); while(logs.children.length>9) logs.firstChild.remove();
+  }
+  function type(txt){
+    clearInterval(typing); think.textContent=''; let i=0;
+    typing=setInterval(()=>{ think.textContent=txt.slice(0,++i); if(i>=txt.length) clearInterval(typing); },10);
+  }
+  function setStamp(kind,text){
+    if(stamp.textContent===text && stamp.className==='stamp '+kind) return;
+    stamp.className='stamp pop'; stamp.textContent=text;
+    requestAnimationFrame(()=>requestAnimationFrame(()=>stamp.className='stamp '+kind));
+  }
+  function highlight(a){ document.querySelectorAll('#allow span').forEach(s=>s.classList.toggle('hit',s.dataset.a===a)); }
 
-function render(s) {
-  $("status").textContent = s.last_error ? "⚠ " + s.last_error : (s.reasoner_busy ? "IA analizando…" : "monitoreando");
-  $("cpu").textContent = s.host_cpu != null ? s.host_cpu.toFixed(0) : "";
-  chart(s.samples);
-  $("procs").innerHTML = s.processes.map((p) => `<tr><td>${p.pid}</td><td>${esc(p.name)}</td><td>${esc(p.username)}</td>`
-    + `<td>${p.cpu_percent.toFixed(1)}</td><td class="cmd">${esc((p.cmdline || []).join(" ").slice(0, 160))}</td></tr>`).join("");
-  const p = s.proposals[0];
-  if (p) $("proposal").innerHTML = p.discarded
-    ? `<span class="pill rejected">descartada</span> ${esc(p.error)} <span class="mut">(${t(p.created_at)})</span>`
-    : `<b>${esc(p.action)}</b> ${p.target ? `→ ${esc(p.target.type)} ${esc(p.target.value)}` : ""} <span class="mut">[${esc(p.source)}, confianza ${esc(p.confidence)}, ${t(p.created_at)}${p.latency_s ? ", " + p.latency_s + " s" : ""}]</span><p>${esc(p.rationale)}</p>`
-      + (p.evidence && p.evidence.length ? `<ul class="mut">${p.evidence.map((e) => `<li>${esc(e)}</li>`).join("")}</ul>` : "");
-  const d = s.decisions[0];
-  if (d) $("decision").innerHTML = `<span class="pill ${esc(d.status)}">${esc(d.status)}</span>`
-    + (d.layer ? ` <b>frenada por la capa: ${esc(LAYERS[d.layer] || d.layer)}</b>` : "")
-    + ` <span class="mut">${t(d.at)}</span><p>${esc(d.reason)}</p>`;
-  $("approvals").innerHTML = s.approvals.length ? s.approvals.map((a) =>
-    `<div><b>#${a.id} ${esc(a.action)}</b> → ${esc(a.target?.type)} ${esc(a.target?.value)} <span class="mut">(confianza ${esc(a.confidence)})</span><p>${esc(a.rationale)}</p></div>`).join("<hr>")
-    : "Nada pendiente.";
-  if (s.incidents.length) $("incidents").innerHTML = s.incidents.map((i) =>
-    `<div><b>pid ${i.pid} ${esc(i.name)}</b> <span class="mut">inicio ${t(i.attack_start)}</span><br>`
-    + `detección: <b>${i.detection_s} s</b> · contención: <b>${i.containment_s} s</b>`
-    + (i.confirmed_s != null ? ` · confirmado: ${i.confirmed_s} s` : "") + `</div>`).join("<hr>");
-  $("audit").textContent = s.audit.map((e) => `#${e.seq} ${t(e.ts)} ${e.kind} prev=${e.prev_sha256.slice(0, 10)}… ${JSON.stringify(e.data)}`).join("\n");
-}
+  // Chart fed by real samples (cpu %), newest on the right.
+  function draw(samples){
+    const w=ctx.canvas.width,h=ctx.canvas.height;
+    ctx.clearRect(0,0,w,h);
+    ctx.strokeStyle='#2c2a2a'; ctx.lineWidth=1;
+    for(let y=0;y<=4;y++){ ctx.beginPath(); ctx.moveTo(0,y*h/4); ctx.lineTo(w,y*h/4); ctx.stroke(); }
+    if(!samples.length) return;
+    const pts=samples.slice(-60), n=pts.length, hot=(pts.at(-1).cpu||0)>60;
+    ctx.beginPath();
+    pts.forEach((s,i)=>{ const v=Math.min(Math.max(s.cpu||0,0),100), x=i*w/Math.max(n-1,1), y=h-v/100*(h-10)-5; i?ctx.lineTo(x,y):ctx.moveTo(x,y); });
+    ctx.strokeStyle=hot?'#e53aa3':'#ffdd00'; ctx.lineWidth=4; ctx.stroke();
+    ctx.lineTo(w,h); ctx.lineTo(0,h); ctx.fillStyle=hot?'rgba(229,58,163,.12)':'rgba(255,221,0,.08)'; ctx.fill();
+  }
 
-async function poll() {
-  try { render(await (await fetch("/api/state")).json()); }
-  catch (e) { $("status").textContent = "sin conexión"; }
-}
-$("sim").onclick = async () => {
-  const r = await fetch("/api/simulate-compromised", { method: "POST" });
-  $("simout").textContent = JSON.stringify(await r.json(), null, 2);
-};
-setInterval(poll, 1000); poll();
+  function renderDecision(d, prop){
+    const [kind,text]=STAMP[d.status]||['','—'];
+    setStamp(kind,text);
+    if(d.layer){ highlight('x'); }
+    else if(prop && prop.action){ highlight(prop.action); }
+    $('status').textContent = d.layer ? ('ataque a la IA frenado · capa '+(LAYERS[d.layer]||d.layer))
+                              : d.status==='executed' ? 'contenido'
+                              : d.status==='pending_approval' ? 'esperando a un humano' : 'vigilando';
+    addLog('['+t(d.at)+'] executor: '+d.status+(d.layer?(' (capa '+d.layer+')'):'')+' — '+esc(d.reason),
+           d.status==='rejected'||d.status==='failed'?'bad':'');
+  }
+  function renderProposal(p){
+    if(!p) return;
+    if(p.discarded){ proposal.innerHTML='<span class="k">propuesta:</span> descartada — '+esc(p.error); return; }
+    const tgt=p.target?(' → '+esc(p.target.value)):'';
+    proposal.innerHTML='<span class="k">propuesta:</span> '+esc(p.action)+tgt
+      +'<br><span class="k">fuente:</span> '+esc(p.source)+' · confianza '+esc(p.confidence)
+      +'<br><span class="k">motivo:</span> '+esc(p.rationale);
+    type(esc(p.rationale)+(p.evidence&&p.evidence.length?('\n→ '+p.evidence.join('\n→ ')):''));
+  }
+
+  // Poll real state and project it onto the control room.
+  let seenAudit=0;
+  function render(s){
+    $('status').style.color='';
+    if(s.last_error){ $('status').textContent='⚠ '+s.last_error; }
+    else if(s.reasoner_busy){ $('status').textContent='IA analizando…'; }
+    draw(s.samples||[]);
+    const cpu=s.host_cpu; $('mVal').textContent = cpu!=null ? Math.round(cpu)+'%' : '—';
+    $('mLabel').textContent='CPU';
+    // audit tail -> logs (only new lines)
+    (s.audit||[]).slice().reverse().forEach(e=>{
+      if(e.seq<=seenAudit) return; seenAudit=e.seq;
+      const bad=/deny|reject|fail/i.test(e.kind);
+      addLog('['+t(e.ts)+'] #'+e.seq+' '+e.kind, bad?'bad':'');
+    });
+    const p=(s.proposals||[])[0], d=(s.decisions||[])[0];
+    if(p) renderProposal(p);
+    if(d && d.at!==lastDecAt){ lastDecAt=d.at; renderDecision(d,p); }
+    const inc=(s.incidents||[])[0];
+    if(inc) $('rt').textContent = (inc.confirmed_s ?? inc.containment_s) + ' s';
+  }
+  async function poll(){
+    try{ render(await (await fetch('/api/state')).json()); }
+    catch(e){ $('status').textContent='sin conexión (¿backend despierto?)'; $('status').style.color='var(--magenta)'; }
+  }
+
+  // Actions hitting the real endpoints.
+  async function postJSON(url){ try{ const r=await fetch(url,{method:'POST'}); return await r.json(); }catch(e){ return {error:String(e)}; } }
+  function flashThink(txt){ type(txt); }
+  async function attack(){
+    flashThink('Lanzando job en el servidor víctima… la IA lo verá en el próximo sondeo.');
+    const r=await postJSON('/api/attack');
+    addLog('['+t(Date.now()/1000)+'] POST /api/attack '+(r.error?('error: '+r.error):('job '+(r.job||'report')+' pid '+(r.pid||'?'))), r.error?'bad':'inj');
+    poll();
+  }
+  async function inject(){
+    flashThink('Inyectando una propuesta falsificada (como si la IA estuviera comprometida)…');
+    const r=await postJSON('/api/simulate-compromised');
+    addLog('['+t(Date.now()/1000)+'] POST /api/simulate-compromised'+(r.error?(' error: '+r.error):''), 'inj');
+    poll();
+  }
+  // Brute force: no backend. Clearly-labeled local simulation.
+  function bruteSimulate(){
+    bruteTimers.forEach(clearTimeout); bruteTimers=[];
+    const atk='198.51.100.23'; $('status').textContent='fuerza bruta (simulado)';
+    for(let i=0;i<6;i++) bruteTimers.push(setTimeout(()=>addLog('[SIM] sshd: Failed password for root from '+atk,'bad'),i*250));
+    bruteTimers.push(setTimeout(()=>{ type('[SIMULADO — sin backend]\n1.080 intentos/min desde '+atk+'.\n→ Patrón: fuerza bruta.\n→ Propondría block_ip.');
+      proposal.innerHTML='<span class="k">propuesta (simulada):</span> block_ip → '+atk; highlight('block_ip'); },1700));
+    bruteTimers.push(setTimeout(()=>setStamp('ok','APROBADA'),3000));
+  }
+
+  const dispatch={miner:attack,inject:inject,brute:bruteSimulate};
+  document.querySelectorAll('[data-scn]').forEach(b=>b.addEventListener('click',()=>{ (dispatch[b.dataset.scn]||(()=>{}))(); }));
+  $('bPwn').addEventListener('click',e=>{ const on=e.currentTarget.getAttribute('aria-pressed')!=='true';
+    e.currentTarget.setAttribute('aria-pressed',on); $('aiCell').classList.toggle('pwned',on); if(on) inject(); });
+  $('bReset').addEventListener('click',()=>{ setStamp('','EN ESPERA'); highlight(null); $('rt').textContent='—'; poll(); });
+
+  $('form').addEventListener('submit',e=>{
+    e.preventDefault(); const v=$('email').value.trim();
+    if(!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(v)){ $('msg').style.color='var(--magenta)'; $('msg').textContent='Escribe un correo válido, por ejemplo tu@empresa.com.'; return; }
+    $('msg').style.color=''; $('msg').textContent='Listo. Te avisaremos a '+v+' cuando abramos acceso.'; $('email').value='';
+  });
+
+  // Live clock (cosmetic).
+  const clk=$('clock'); setInterval(()=>{ clk.textContent=new Date().toLocaleTimeString(); },1000);
+
+  setInterval(poll,1000); poll();
+})();
 </script>
-</body>
-</html>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/qrcodejs/1.0.0/qrcode.min.js"></script>
+<script>
+(() => {
+  const $ = id => document.getElementById(id);
+  try { new QRCode($('qr'), { text:'https://centinela.demo/unirse', width:172, height:172, colorDark:'#111010', colorLight:'#f2f2f2' }); }
+  catch(e){ $('qr').textContent='QR'; }
+
+  // Example audience activity, clearly simulated.
+  const names=['vale','tomi','ana_s','nico','fer','juanpa','cami','rodri','luz','mati','sofi','beto'];
+  const kinds=[['lanzó un minero','proceso eliminado'],['probó fuerza bruta','IP bloqueada'],['inyectó texto en logs','traición denegada']];
+  const board=new Map(); let people=0;
+  const pick=a=>a[Math.random()*a.length|0];
+  function feed(txt,cls){
+    const d=document.createElement('div'); d.textContent=txt; if(cls) d.className=cls;
+    const f=$('feed'); f.appendChild(d); while(f.children.length>8) f.firstChild.remove();
+  }
+  function renderBoard(){
+    const rows=[...board].sort((a,b)=>b[1]-a[1]).slice(0,5);
+    $('board').replaceChildren(...rows.map(([n,s])=>{ const li=document.createElement('li'); li.innerHTML='<span></span><b></b>'; li.firstChild.textContent='@'+n; li.lastChild.textContent=s.toFixed(1)+' s'; return li; }));
+  }
+  function tick(){
+    if(people<48){ people+=1+(Math.random()*3|0); $('people').textContent=people; }
+    const n=pick(names), k=pick(kinds), secs=1.5+Math.random()*3;
+    feed('@'+n+' '+k[0],'m');
+    setTimeout(()=>{ feed('→ '+k[1]+' en '+secs.toFixed(1)+' s','y'); board.set(n,Math.max(board.get(n)||0,secs)); renderBoard(); },900);
+  }
+  tick(); setInterval(tick,2600);
+
+  const msgs={miner:'Minero lanzado. Mira la pantalla…',brute:'Atacando el login… mira la pantalla.',inject:'Texto inyectado. ¿Caerá la IA?'};
+  document.querySelectorAll('.phone [data-scn]').forEach(b=>b.addEventListener('click',()=>{
+    $('phoneRes').textContent=msgs[b.dataset.scn];
+    feed('@tú '+b.textContent.slice(2).toLowerCase(),'m');
+    document.getElementById('demo').scrollIntoView({behavior:'smooth',block:'start'});
+  }));
+})();
+</script>
