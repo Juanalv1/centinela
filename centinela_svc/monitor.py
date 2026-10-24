@@ -6,6 +6,8 @@ import logging
 import time
 from collections import deque
 
+import os
+
 import httpx
 
 from domain import Decision, Proposal
@@ -14,6 +16,32 @@ from reasoner import ClaudeReasoner
 
 log = logging.getLogger("centinela.monitor")
 HEARTBEAT_S = 30.0
+BASELINE_S = float(os.environ.get("BASELINE_SECONDS", "60"))
+
+
+def process_signature(proc: dict) -> str:
+    """What a workload is, independent of pid and arguments: name plus the first
+    non-flag argument (the script or module for interpreters)."""
+    first = next((a for a in (proc.get("cmdline") or [])[1:] if not a.startswith("-")), None)
+    return f"{proc['name']}:{first}" if first else proc["name"]
+
+
+class Baseline:
+    """Workloads seen during a warm-up window; afterwards, anything else is new."""
+
+    def __init__(self, window_s: float, started_at: float) -> None:
+        self.window_s = window_s
+        self.started_at = started_at
+        self.known: set[str] = set()
+
+    def annotate(self, metrics: dict, now: float) -> None:
+        ready = now - self.started_at >= self.window_s
+        for proc in metrics.get("processes", []):
+            sig = process_signature(proc)
+            if not ready:
+                self.known.add(sig)
+            proc["new_since_baseline"] = (sig not in self.known) if ready else None
+        metrics["baseline"] = {"ready": ready, "window_s": round(self.window_s)}
 
 
 class Monitor:
@@ -36,6 +64,7 @@ class Monitor:
         self._known_pids: set[int] | None = None
         self._pending_new: set[int] = set()
         self._last_reason_at = 0.0
+        self.baseline = Baseline(BASELINE_S, time.time())
         self._lock = asyncio.Lock()  # serializes executor use (monitor + simulate)
 
     async def run(self) -> None:
@@ -54,6 +83,7 @@ class Monitor:
         metrics = resp.json()
         now = time.time()
         self.clock_offset = now - metrics.get("server_time", now)
+        self.baseline.annotate(metrics, now)
         self.latest = metrics
         pids = {p["pid"] for p in metrics["processes"]}
         self.samples.append({"t": now, "cpu": metrics["cpu_percent"], "n": len(pids)})
