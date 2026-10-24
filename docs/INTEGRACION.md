@@ -42,6 +42,16 @@ Las credenciales nunca salen de la infraestructura del cliente. La IA solo recib
 
 **Retroalimentación (no implementada aún):** cuando un humano rechaza una propuesta, ese comportamiento puede incorporarse a la línea base como normal, para no volver a marcarlo.
 
+## Plug and play (deseable, no prioritario)
+
+Objetivo: integrar Centinela en minutos. Versión mínima que sumaría puntos de ejecución como producto:
+
+1. **Ingesta en una línea:** un middleware instalable (`pip install centinela-agent`) que se agrega a la app y envía los metadatos de cada petición.
+2. **Ejecutor en un comando:** `docker run centinela/executor` con las credenciales mínimas como variables de entorno.
+3. **Modo recomendación por defecto:** arranca sin actuar; el cliente activa el modo automático cuando confía.
+
+Estado: backlog. Solo se hace si sobra tiempo después de A1–A3.
+
 ## Qué muestra el demo y qué no
 
 | Pieza | En el demo | En producción |
