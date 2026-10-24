@@ -1,27 +1,57 @@
-"""Domain types for Centinela. No I/O here."""
+"""Domain types for Centinela. No I/O here.
+
+Shared contract between the reasoner (what the AI may propose) and the
+executor (what the code will actually do). Change it only by agreement.
+"""
 from __future__ import annotations
 
 import itertools
 import time
 from dataclasses import asdict, dataclass, field
+from enum import StrEnum
+
+
+class Lane(StrEnum):
+    AUTO = "auto"            # reversible: executes immediately
+    APPROVAL = "approval"    # waits for a human
+    RECOMMEND = "recommend"  # outside the menu: shown to a human, never executed
+
+
+@dataclass(frozen=True)
+class ActionSpec:
+    target_type: str  # "process" | "key" | "ip" | "user"
+    lane: Lane
+
 
 # Closed response menu: the only actions the executor will ever perform.
-MENU: frozenset[str] = frozenset({"matar_proceso"})
-NO_ACTION = "ninguna"
-
-# Processes the executor refuses to touch, regardless of what is proposed.
-PROTECTED_NAMES: frozenset[str] = frozenset({"db-sim", "init", "systemd", "uvicorn"})
-PROTECTED_CMDLINE_TOKENS: tuple[str, ...] = ("db-sim", "python -m uvicorn", "uvicorn")
+# The lane comes from here, never from the model.
+MENU: dict[str, ActionSpec] = {
+    "kill_process":   ActionSpec("process", Lane.AUTO),
+    "revoke_key":     ActionSpec("key",     Lane.AUTO),
+    "block_ip":       ActionSpec("ip",      Lane.AUTO),
+    "close_sessions": ActionSpec("user",    Lane.AUTO),
+    "suspend_user":   ActionSpec("user",    Lane.APPROVAL),
+}
+NO_ACTION = "none"
+RECOMMEND_ACTION = "recommend"
+CONFIDENCE_LEVELS = ("low", "medium", "high")
 
 _ids = itertools.count(1)
 
 
 @dataclass
+class Target:
+    type: str
+    value: str
+
+
+@dataclass
 class Proposal:
-    accion: str | None
-    pid: int | None
-    nombre: str | None
-    justificacion: str
+    action: str | None  # MENU key, "none" or "recommend"
+    target: Target | None
+    rationale: str
+    evidence: list[str]  # log lines / metric facts the AI relies on
+    confidence: str  # "low" | "medium" | "high"
     source: str  # "claude" | "forged"
     discarded: bool = False  # True when the reasoner output was unusable
     error: str | None = None
@@ -36,9 +66,10 @@ class Proposal:
 @dataclass
 class Decision:
     proposal_id: int
-    status: str  # "executed" | "rejected" | "noop" | "failed"
+    status: str  # executed | rejected | pending_approval | recommended | noop | failed
     reason: str
-    pid: int | None = None
+    layer: str | None = None  # layer that stopped it: "menu" | "policy" | "infra"; None if not stopped
+    target: Target | None = None
     result: dict | None = None
     at: float = field(default_factory=time.time)
 
