@@ -325,7 +325,7 @@ footer{border-top:1px solid var(--line);padding-block:32px;font-family:var(--mon
   const LAYERS={menu:'menú',policy:'política',infra:'infraestructura'};
   const STAMP={executed:['ok','APROBADA'],rejected:['no','DENEGADA'],pending_approval:['no','REQUIERE HUMANO'],
                recommended:['ok','SÓLO NOTA'],noop:['','SIN ACCIÓN'],failed:['no','FALLÓ']};
-  let lastDecAt=null, typing=null, bruteSim=false, bruteTimers=[];
+  let lastDecAt=null, lastPropId=null, typing=null, bruteSim=false, bruteTimers=[];
 
   const esc = s => String(s??'');
   const t = ts => ts ? new Date(ts*1000).toLocaleTimeString() : '—';
@@ -372,6 +372,10 @@ footer{border-top:1px solid var(--line);padding-block:32px;font-family:var(--mon
   function renderProposal(p){
     if(!p) return;
     if(p.discarded){ proposal.innerHTML='<span class="k">propuesta:</span> descartada — '+esc(p.error); return; }
+    if(!p.action || p.action==='none'){
+      proposal.innerHTML='<span class="k">propuesta:</span> ninguna · sin amenazas';
+      type(esc(p.rationale)); return;
+    }
     const tgt=p.target?(' → '+esc(p.target.value)):'';
     proposal.innerHTML='<span class="k">propuesta:</span> '+esc(p.action)+tgt
       +'<br><span class="k">fuente:</span> '+esc(p.source)+' · confianza '+esc(p.confidence)
@@ -395,7 +399,7 @@ footer{border-top:1px solid var(--line);padding-block:32px;font-family:var(--mon
       addLog('['+t(e.ts)+'] #'+e.seq+' '+e.kind, bad?'bad':'');
     });
     const p=(s.proposals||[])[0], d=(s.decisions||[])[0];
-    if(p) renderProposal(p);
+    if(p && p.id!==lastPropId){ lastPropId=p.id; renderProposal(p); }
     if(d && d.at!==lastDecAt){ lastDecAt=d.at; renderDecision(d,p); }
     const inc=(s.incidents||[])[0];
     if(inc) $('rt').textContent = (inc.confirmed_s ?? inc.containment_s) + ' s';
