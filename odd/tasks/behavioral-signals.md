@@ -17,9 +17,10 @@ Per-process signals (psutil, Linux), added to `/metrics` and passed to the reaso
 | Baseline (processes seen during a warm-up window) | This process never existed on this server |
 
 ## Tasks
+Owner: Christian (@ChristianVeneko) for all tasks.
 - [ ] T1 (Christian, `victim/`): expose the signals above in `/metrics`; keep the payload compact; tests.
-- [ ] T2 (Maikol, `centinela_svc/reasoner.py`, `monitor.py`): include the signals and the baseline in the snapshot; update the prompt to reason on behavior; never on names alone.
-- [ ] T3 (both): demo job variant without the pool string in its cmdline, plus a legitimate heavy job. Expected: AI proposes `kill_process` for the first and `none` for the second, across 5 runs each. Record results here.
+- [ ] T2 (Christian, `centinela_svc/reasoner.py`, `monitor.py`): include the signals and the baseline in the snapshot; update the prompt to reason on behavior; never on names alone.
+- [ ] T3 (Christian): demo job variant without the pool string in its cmdline, plus a legitimate heavy job. Expected: AI proposes `kill_process` for the first and `none` for the second, across 5 runs each. Record results here.
 
 ## Acceptance
 T3 passes in the cloud (5/5 detected, 0/5 false positives) before the pitch claims "detects by behavior".
