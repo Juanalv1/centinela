@@ -15,9 +15,9 @@
 
 ## Tasks
 
-- T1 [S2,S3,S4,S5] inline — backend `audience.py`: participant registry + activity ring + leaderboard + rate limits; endpoints `POST /api/join`, `POST /api/participate`, `GET /api/live`. Tests with TestClient. Commit.
-- T2 [S1] inline — `/unirse` serves a real mobile portal (replace the redirect): `@handle` input → attack menu → real result. Commit.
-- T3 [S2,S3] inline — big-screen `#envivo`: replace simulated feed/board/people JS with real `GET /api/live` polling. Commit.
+- T1 [S2,S3,S4,S5] inline — DONE (5dbc970): backend `audience.py` + endpoints `POST /api/join`, `POST /api/participate`, `GET /api/live`; 24 tests in `tests/test_audience.py`. Risk: none (new endpoints, in-memory; no contract/DB change).
+- T2 [S1] inline — DONE (5dbc970): `/unirse` serves `centinela_svc/portal.html` (replaces the redirect): `@handle` input → attack menu → real result. Risk: none.
+- T3 [S2,S3] inline — DONE (e9f4c66): big-screen `#envivo` feed/board/people now poll real `GET /api/live`; removed simulated names and the brute-force button. Risk: none.
 
 ## Log
 
