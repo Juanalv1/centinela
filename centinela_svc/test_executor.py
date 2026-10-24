@@ -55,7 +55,7 @@ def run(coro):
 # Rule 1: the lane comes only from MENU.
 def test_lane_comes_from_menu_not_model(executor, victim):
     assert MENU["suspend_user"].lane is Lane.APPROVAL
-    d = run(executor.handle(proposal("suspend_user", "user", "alice", confidence="high"), SNAPSHOT))
+    d = run(executor.handle(proposal("suspend_user", "user", "2", confidence="high"), SNAPSHOT))
     assert d.status == "pending_approval"
     assert victim.killed == []
     assert [p["id"] for p in executor.pending()] == [d.proposal_id]
@@ -163,12 +163,12 @@ def test_victim_refusal_is_failed_at_infra_layer(tmp_path):
     assert (d.status, d.layer) == ("failed", "infra")
 
 
-# Rule 7: other menu actions are not implemented yet.
+# Rule 7: case-2 actions need the executor's database role (see tests/test_executor_case2.py).
 @pytest.mark.parametrize("action,ttype,value", [
-    ("revoke_key", "key", "k1"), ("block_ip", "ip", "10.0.0.1"), ("close_sessions", "user", "alice"),
+    ("revoke_key", "key", "1"), ("block_ip", "ip", "198.51.100.7"), ("close_sessions", "user", "2"),
 ])
-def test_unimplemented_actions_fail(executor, victim, action, ttype, value):
+def test_case2_actions_without_database_fail(executor, victim, action, ttype, value):
     d = run(executor.handle(proposal(action, ttype, value), SNAPSHOT))
-    assert d.status == "failed"
-    assert d.reason == "not implemented yet (case 2)"
+    assert (d.status, d.layer) == ("failed", "infra")
+    assert "EXECUTOR_DATABASE_URL not configured" in d.reason
     assert victim.killed == []

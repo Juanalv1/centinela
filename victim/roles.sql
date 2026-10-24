@@ -9,8 +9,9 @@ BEGIN
 END $$;
 ALTER ROLE centinela_executor WITH LOGIN PASSWORD {password};
 
-REVOKE ALL ON users, api_keys, sessions, ip_blocklist, protected_networks, access_log
+REVOKE ALL ON users, api_keys, sessions, ip_blocklist, protected_networks, access_log, user_suspensions
     FROM centinela_executor;
+REVOKE ALL ON FUNCTION is_protected_user(integer) FROM PUBLIC;
 REVOKE ALL ON ALL SEQUENCES IN SCHEMA public FROM centinela_executor;
 GRANT USAGE ON SCHEMA public TO centinela_executor;
 
@@ -21,4 +22,8 @@ GRANT UPDATE (status) ON api_keys TO centinela_executor;
 GRANT SELECT, INSERT, DELETE ON ip_blocklist TO centinela_executor;
 -- cerrar_sesiones.
 GRANT SELECT, DELETE ON sessions TO centinela_executor;
+-- suspend_user: a suspension row (plus closing that user's sessions).
+GRANT SELECT, INSERT, DELETE ON user_suspensions TO centinela_executor;
+-- Policy check for admins without reading users: one boolean per id.
+GRANT EXECUTE ON FUNCTION is_protected_user(integer) TO centinela_executor;
 -- Nothing on users, access_log or protected_networks.

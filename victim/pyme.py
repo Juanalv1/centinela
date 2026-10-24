@@ -7,7 +7,8 @@ Endpoints (only when DATABASE_URL is set; otherwise 503):
   GET  /access-log      HTTP access log (with User-Agent) for the monitor
   GET  /security-state  keys, blocklist and session counts for the monitor
 
-Every /api/* request is checked against ip_blocklist and written to access_log.
+Every /api/* request is checked against ip_blocklist and user_suspensions and
+written to access_log.
 """
 from __future__ import annotations
 
@@ -155,6 +156,8 @@ def _guard_and_log(request: Request, ip: str) -> JSONResponse | None:
     user = _authenticate(request)
     if user is None:
         return JSONResponse({"error": "unauthorized"}, status_code=401)
+    if _query("SELECT 1 FROM user_suspensions WHERE user_id = %s", (user[0],)):
+        return JSONResponse({"error": "user suspended"}, status_code=403)
     request.state.user = user
     return None
 
@@ -237,11 +240,13 @@ def security_state():
     keys = _query("SELECT k.id, u.username, u.role, k.label, k.status, k.protected "
                   "FROM api_keys k JOIN users u ON u.id = k.user_id ORDER BY k.id")
     blocked = _query("SELECT host(ip), reason FROM ip_blocklist ORDER BY created_at")
-    sessions = _query("SELECT u.username, u.id, count(s.id) FROM users u "
+    sessions = _query("SELECT u.username, u.id, u.role, count(s.id), "
+                      "EXISTS (SELECT 1 FROM user_suspensions x WHERE x.user_id = u.id) FROM users u "
                       "LEFT JOIN sessions s ON s.user_id = u.id GROUP BY u.username, u.id ORDER BY u.id")
     return {
         "api_keys": [dict(zip(("id", "username", "role", "label", "status", "protected"), r)) for r in keys],
         "ip_blocklist": [{"ip": ip, "reason": reason} for ip, reason in blocked],
-        "users": [{"id": uid, "username": name} for name, uid, _ in sessions],
-        "sessions_by_user": {name: n for name, _, n in sessions},
+        "users": [{"id": uid, "username": name, "role": role, "suspended": susp}
+                  for name, uid, role, _, susp in sessions],
+        "sessions_by_user": {name: n for name, _, _, n, _ in sessions},
     }

@@ -80,3 +80,37 @@ END $$;
 DROP TRIGGER IF EXISTS guard_protected_network ON ip_blocklist;
 CREATE TRIGGER guard_protected_network BEFORE INSERT OR UPDATE ON ip_blocklist
     FOR EACH ROW EXECUTE FUNCTION guard_protected_network();
+
+-- suspend_user without touching `users`: a separate table the auth check reads.
+CREATE TABLE IF NOT EXISTS user_suspensions (
+    user_id    integer PRIMARY KEY REFERENCES users(id),
+    reason     text NOT NULL,
+    created_at timestamptz NOT NULL DEFAULT now()
+);
+
+-- Exposes one boolean about a user (is it an admin?) to roles that cannot read `users`.
+CREATE OR REPLACE FUNCTION is_protected_user(uid integer) RETURNS boolean
+LANGUAGE sql STABLE SECURITY DEFINER SET search_path = public, pg_temp AS $$
+    SELECT EXISTS (SELECT 1 FROM users WHERE id = uid AND role = 'admin')
+$$;
+
+-- Admins cannot be suspended, and the executor cannot close their sessions.
+-- (The app itself may still delete sessions, e.g. on logout.)
+CREATE OR REPLACE FUNCTION guard_protected_user() RETURNS trigger
+LANGUAGE plpgsql SECURITY DEFINER SET search_path = public, pg_temp AS $$
+DECLARE
+    uid integer := CASE WHEN TG_OP = 'DELETE' THEN OLD.user_id ELSE NEW.user_id END;
+BEGIN
+    IF (TG_TABLE_NAME = 'user_suspensions' OR session_user = 'centinela_executor')
+            AND is_protected_user(uid) THEN
+        RAISE EXCEPTION 'permission denied: user % is a protected user', uid
+            USING ERRCODE = 'insufficient_privilege';
+    END IF;
+    RETURN CASE WHEN TG_OP = 'DELETE' THEN OLD ELSE NEW END;
+END $$;
+DROP TRIGGER IF EXISTS guard_protected_user ON user_suspensions;
+CREATE TRIGGER guard_protected_user BEFORE INSERT OR UPDATE ON user_suspensions
+    FOR EACH ROW EXECUTE FUNCTION guard_protected_user();
+DROP TRIGGER IF EXISTS guard_protected_user ON sessions;
+CREATE TRIGGER guard_protected_user BEFORE DELETE ON sessions
+    FOR EACH ROW EXECUTE FUNCTION guard_protected_user();
