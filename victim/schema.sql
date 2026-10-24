@@ -53,6 +53,11 @@ CREATE TABLE IF NOT EXISTS access_log (
     user_id    integer,
     api_key_id integer
 );
+-- Behavioral columns (added later, so ALTER for existing databases): response
+-- size, query string, and a marker for the seeded lab history.
+ALTER TABLE access_log ADD COLUMN IF NOT EXISTS bytes integer;
+ALTER TABLE access_log ADD COLUMN IF NOT EXISTS query text;
+ALTER TABLE access_log ADD COLUMN IF NOT EXISTS lab_seed boolean NOT NULL DEFAULT false;
 
 -- Last line of defense: protected keys cannot change status, for any role.
 CREATE OR REPLACE FUNCTION guard_protected_key() RETURNS trigger

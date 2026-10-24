@@ -38,7 +38,11 @@ def test_api_key_auth_and_access_log_keeps_user_agent(env):
     assert r.json()["username"] == "ana"
     assert client.get("/api/me", headers={"X-API-Key": "wrong"}).status_code == 401
 
-    log = client.get("/access-log").json()["entries"]
+    log, after = [], 0
+    while batch := client.get("/access-log", params={"after": after, "limit": 500}).json()["entries"]:
+        log += batch
+        after = batch[-1]["id"]
+    log = [e for e in log if not e["lab_seed"]]  # skip the seeded lab history
     hit = next(e for e in log if e["status"] == 200)
     assert hit["user_agent"] == ua
     assert hit["ip"] == "198.51.100.7"

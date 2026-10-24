@@ -4,8 +4,11 @@ Endpoints (only when DATABASE_URL is set; otherwise 503):
   POST /api/login       {username, password} -> session token
   GET  /api/me          X-API-Key or Authorization: Bearer <session>
   GET  /api/invoices    same auth; fake business data
-  GET  /access-log      HTTP access log (with User-Agent) for the monitor
+  GET  /api/customers   same auth; ?page=N, paginated fake customer records
+  GET  /access-log      HTTP access log (User-Agent, bytes, query, lab_seed) for the monitor
   GET  /security-state  keys, blocklist and session counts for the monitor
+  POST /lab/reset       X-Lab-Token (only when LAB_TOKEN is set): reactivate keys,
+                        clear blocks and suspensions between lab trials
 
 Every /api/* request is checked against ip_blocklist and user_suspensions and
 written to access_log.
@@ -13,14 +16,18 @@ written to access_log.
 from __future__ import annotations
 
 import hashlib
+import hmac
 import ipaddress
+import json
 import logging
 import os
+import random
 import secrets
 import threading
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
-from fastapi import APIRouter, Request
+from fastapi import APIRouter, Header, Request
 from fastapi.concurrency import run_in_threadpool
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel
@@ -61,6 +68,8 @@ def init(dsn: str) -> None:
     _conn = psycopg.connect(dsn, autocommit=True)
     _conn.execute((HERE / "schema.sql").read_text(encoding="utf-8"))
     _seed()
+    _sync_lab_keys()
+    _seed_history()
     password = os.environ.get("EXECUTOR_DB_PASSWORD")
     if password:
         roles = (HERE / "roles.sql").read_text(encoding="utf-8")
@@ -95,12 +104,106 @@ def _seed() -> None:
         _conn.execute("INSERT INTO api_keys (user_id, label, key_hash) VALUES (%s, %s, %s)",
                       (users["ana"], "ana-integration", _h(leaked)))
         _conn.execute("INSERT INTO api_keys (user_id, label, key_hash) VALUES (%s, %s, %s)",
-                      (users["luis"], "luis-reports", _h(secrets.token_urlsafe(24))))
+                      (users["luis"], "luis-reports",
+                       _h(os.environ.get("DEMO_LUIS_KEY") or secrets.token_urlsafe(24))))
         for name in ("admin", "ana", "luis"):
             _conn.execute("INSERT INTO sessions (user_id, token_hash, ip) VALUES (%s, %s, %s)",
                           (users[name], _h(secrets.token_urlsafe(24)), office.split("/")[0]))
         _conn.execute("INSERT INTO protected_networks (cidr, label) VALUES (%s, 'office') "
                       "ON CONFLICT DO NOTHING", (office,))
+
+
+LAB_TZ = timezone(timedelta(hours=float(os.environ.get("LAB_TZ_OFFSET_HOURS", "-4"))))  # Caracas
+HISTORY_DAYS = 21
+CUSTOMER_PAGES = 40
+PAGE_SIZE = 25
+_FIRST = ("María", "José", "Ana", "Luis", "Carmen", "Pedro", "Rosa", "Jesús", "Elena", "Carlos")
+_LAST = ("González", "Rodríguez", "Pérez", "Hernández", "García", "Martínez", "López", "Díaz")
+
+
+def customers_page(page: int) -> list[dict]:
+    """Deterministic fake customer records (example.com addresses, no real people)."""
+    if not 1 <= page <= CUSTOMER_PAGES:
+        return []
+    rng = random.Random(page)
+    rows = []
+    for i in range(PAGE_SIZE):
+        cid = (page - 1) * PAGE_SIZE + i + 1
+        name = f"{rng.choice(_FIRST)} {rng.choice(_LAST)}"
+        rows.append({"id": cid, "name": name, "rif": f"V-{rng.randint(4_000_000, 29_999_999)}",
+                     "email": f"cliente{cid}@example.com", "phone": f"+58-412-555-{cid:04d}",
+                     "balance_usd": round(rng.uniform(0, 5000), 2)})
+    return rows
+
+
+def _customers_body(page: int) -> dict:
+    return {"page": page, "pages": CUSTOMER_PAGES, "page_size": PAGE_SIZE, "customers": customers_page(page)}
+
+
+def _sync_lab_keys() -> None:
+    """Make the luis-reports key match DEMO_LUIS_KEY on databases seeded before it existed."""
+    luis = os.environ.get("DEMO_LUIS_KEY")
+    if luis:
+        with _lock:
+            _conn.execute("UPDATE api_keys SET key_hash = %s WHERE label = 'luis-reports' AND key_hash <> %s",
+                          (_h(luis), _h(luis)))
+
+
+def _known_ips(office: str) -> list[str]:
+    ips = [ip for ip in (_normalize_ip(v) for v in os.environ.get("LAB_KNOWN_IPS", "").split(",") if v.strip())
+           if ip]
+    return ips or [office]
+
+
+def _history_rows(now: datetime, ids: dict, office: str, known: list[str]) -> list[tuple]:
+    """Lab history: ana's ERP integration (weekdays, office hours, office ip, two light
+    endpoints) and luis's reports bot (every hour from LAB_KNOWN_IPS, paginated customers)."""
+    rng = random.Random(2024)
+    office_ips = [str(h) for _, h in zip(range(2), ipaddress.ip_network(office, strict=False).hosts())]
+    sizes = {"/api/me": len(json.dumps({"id": 2, "username": "ana", "role": "staff"})), "/api/invoices": 190}
+    rows = []
+    start = (now - timedelta(days=HISTORY_DAYS)).astimezone(LAB_TZ).replace(minute=0, second=0, microsecond=0)
+    for hour in range(HISTORY_DAYS * 24):
+        t = start + timedelta(hours=hour)
+        if t >= now:
+            break
+        if t.weekday() < 5 and 8 <= t.hour < 18:
+            for _ in range(rng.randint(1, 2)):
+                ts = t + timedelta(minutes=rng.randint(0, 59), seconds=rng.randint(0, 59))
+                path = rng.choice(("/api/me", "/api/invoices"))
+                rows.append((ts, rng.choice(office_ips), path, None, sizes[path], "AnaERP-Sync/2.3",
+                             ids["ana-integration"]))
+        ts = t + timedelta(minutes=rng.randint(0, 50))
+        rows.append((ts, known[0], "/api/invoices", None, sizes["/api/invoices"], "ReportsBot/1.4",
+                     ids["luis-reports"]))
+        for page in range(1, rng.randint(2, 3)):
+            rows.append((ts + timedelta(seconds=5 * page), known[0], "/api/customers", f"page={page}",
+                         len(json.dumps(_customers_body(page))), "ReportsBot/1.4", ids["luis-reports"]))
+    return rows
+
+
+def _seed_history() -> None:
+    """Seed the clearly-marked (lab_seed) usage history once; keep luis's ip in LAB_KNOWN_IPS."""
+    office = os.environ.get("OFFICE_CIDR", "203.0.113.0/24")
+    known = _known_ips(office.split("/")[0])
+    with _lock, _conn.transaction():
+        ids = dict(_conn.execute("SELECT label, id FROM api_keys "
+                                 "WHERE label IN ('ana-integration', 'luis-reports')").fetchall())
+        if len(ids) < 2:
+            return
+        if _conn.execute("SELECT 1 FROM access_log WHERE lab_seed LIMIT 1").fetchone():
+            _conn.execute("UPDATE access_log SET ip = %s WHERE lab_seed AND api_key_id = %s "
+                          "AND NOT (ip = ANY(%s))", (known[0], ids["luis-reports"], known))
+            return
+        users = dict(_conn.execute("SELECT k.id, k.user_id FROM api_keys k WHERE k.id = ANY(%s)",
+                                   (list(ids.values()),)).fetchall())
+        with _conn.cursor() as cur:
+            cur.executemany(
+                "INSERT INTO access_log (ts, ip, method, path, query, status, bytes, user_agent, user_id, "
+                "api_key_id, lab_seed) VALUES (%s, %s, 'GET', %s, %s, 200, %s, %s, %s, %s, true)",
+                [(ts, ip, path, query, size, ua, users[key], key)
+                 for ts, ip, path, query, size, ua, key in _history_rows(datetime.now(timezone.utc), ids,
+                                                                          office, known)])
 
 
 def _query(sql: str, params: tuple = ()) -> list[tuple]:
@@ -173,12 +276,13 @@ def _guard_and_log(request: Request, ip: str) -> JSONResponse | None:
     return None
 
 
-def _write_log(request: Request, ip: str, status: int) -> None:
+def _write_log(request: Request, ip: str, status: int, size: int | None) -> None:
     user = getattr(request.state, "user", None)
-    _query("INSERT INTO access_log (ip, method, path, status, user_agent, user_id, api_key_id) "
-           "VALUES (%s, %s, %s, %s, %s, %s, %s)",
-           (ip, request.method, request.url.path, status, request.headers.get("user-agent"),
-            user[0] if user else None, getattr(request.state, "api_key_id", None)))
+    _query("INSERT INTO access_log (ip, method, path, query, status, bytes, user_agent, user_id, api_key_id) "
+           "VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s)",
+           (ip, request.method, request.url.path, request.url.query or None, status, size,
+            request.headers.get("user-agent"), user[0] if user else None,
+            getattr(request.state, "api_key_id", None)))
 
 
 async def middleware(request: Request, call_next):
@@ -189,7 +293,8 @@ async def middleware(request: Request, call_next):
     ip = client_ip(request)
     denied = await run_in_threadpool(_guard_and_log, request, ip)
     response = denied or await call_next(request)
-    await run_in_threadpool(_write_log, request, ip, response.status_code)
+    size = response.headers.get("content-length")
+    await run_in_threadpool(_write_log, request, ip, response.status_code, int(size) if size else None)
     return response
 
 
@@ -226,6 +331,11 @@ def invoices(request: Request):
     ]}
 
 
+@router.get("/api/customers")
+def customers(page: int = 1):
+    return _customers_body(page)
+
+
 def _require_db():
     if not enabled():
         return JSONResponse({"error": "case 2 database not configured"}, status_code=503)
@@ -238,9 +348,11 @@ def access_log(after: int = 0, limit: int = 100):
         return err
     rows = _query(
         "SELECT a.id, extract(epoch FROM a.ts), a.ip, a.method, a.path, a.status, a.user_agent, "
-        "a.user_id, u.username, a.api_key_id FROM access_log a LEFT JOIN users u ON u.id = a.user_id "
+        "a.user_id, u.username, a.api_key_id, a.bytes, a.query, a.lab_seed "
+        "FROM access_log a LEFT JOIN users u ON u.id = a.user_id "
         "WHERE a.id > %s ORDER BY a.id LIMIT %s", (after, max(1, min(limit, 500))))
-    cols = ("id", "ts", "ip", "method", "path", "status", "user_agent", "user_id", "username", "api_key_id")
+    cols = ("id", "ts", "ip", "method", "path", "status", "user_agent", "user_id", "username", "api_key_id",
+            "bytes", "query", "lab_seed")
     return {"entries": [dict(zip(cols, r)) | {"ts": float(r[1])} for r in rows]}
 
 
@@ -261,3 +373,21 @@ def security_state():
                   for name, uid, role, _, susp in sessions],
         "sessions_by_user": {name: n for name, _, _, n, _ in sessions},
     }
+
+
+@router.post("/lab/reset")
+def lab_reset(x_lab_token: str | None = Header(default=None)):
+    """Undo containment between lab trials. Absent unless LAB_TOKEN is set."""
+    expected = os.environ.get("LAB_TOKEN", "")
+    if not expected:
+        return JSONResponse({"error": "not found"}, status_code=404)
+    if not x_lab_token or not hmac.compare_digest(x_lab_token.encode(), expected.encode()):
+        return JSONResponse({"error": "unauthorized"}, status_code=401)
+    if (err := _require_db()) is not None:
+        return err
+    with _lock, _conn.transaction():
+        keys = _conn.execute("UPDATE api_keys SET status = 'active' WHERE status = 'revoked' AND NOT protected")
+        blocks = _conn.execute("DELETE FROM ip_blocklist")
+        suspensions = _conn.execute("DELETE FROM user_suspensions")
+    return {"reactivated_keys": keys.rowcount, "unblocked_ips": blocks.rowcount,
+            "lifted_suspensions": suspensions.rowcount}
