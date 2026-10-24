@@ -1,0 +1,164 @@
+<!doctype html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<title>Centinela · Únete</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Urbanist:wght@300..800&family=JetBrains+Mono:wght@400;700&family=Silkscreen:wght@400;700&display=swap">
+<style>
+:root{
+  --bg:#111010; --panel:#1a1919; --line:#2c2a2a; --fg:#f2f2f2; --muted:#a3a0a0;
+  --yellow:#ffdd00; --magenta:#e53aa3; --blue:#4c9eff; --green:#49d08b;
+  --display:"Urbanist",system-ui,sans-serif;
+  --mono:"JetBrains Mono",ui-monospace,Consolas,monospace;
+  --pixel:"Silkscreen","JetBrains Mono",monospace;
+  color-scheme:dark;
+}
+*{box-sizing:border-box}
+body{background:var(--bg);color:var(--fg);font-family:var(--display);margin:0;
+  min-height:100dvh;display:flex;flex-direction:column;
+  padding:calc(env(safe-area-inset-top) + 20px) 18px calc(env(safe-area-inset-bottom) + 24px)}
+a{color:inherit}
+:focus-visible{outline:2px solid var(--yellow);outline-offset:3px}
+.logo{font-family:var(--pixel);font-weight:700;font-size:14px;letter-spacing:2px;color:var(--yellow)}
+h1{font-size:30px;line-height:1.15;margin:14px 0 6px}
+.muted{color:var(--muted)}
+.tag{font-family:var(--mono);font-size:12px;letter-spacing:.5px;text-transform:uppercase;color:var(--muted)}
+.card{background:var(--panel);border:1px solid var(--line);border-radius:14px;padding:18px;margin-top:16px}
+label{display:block;font-family:var(--mono);font-size:12px;color:var(--muted);margin-bottom:8px}
+.at{display:flex;align-items:center;border:1px solid var(--line);border-radius:12px;background:var(--bg);overflow:hidden}
+.at span{padding:0 4px 0 14px;font-family:var(--mono);font-size:22px;color:var(--yellow)}
+.at input{flex:1;min-width:0;background:transparent;border:0;color:var(--fg);
+  font-family:var(--mono);font-size:22px;padding:16px 14px 16px 2px}
+.at input:focus{outline:none}
+button{font-family:var(--mono);font-size:16px;border-radius:12px;cursor:pointer;
+  border:1px solid var(--line);background:var(--panel);color:var(--fg);padding:16px;width:100%}
+button:active{transform:translateY(1px)}
+.btn-y{background:var(--yellow);color:#111;border-color:var(--yellow);font-weight:700;margin-top:14px}
+.atk{text-align:left;display:flex;flex-direction:column;gap:3px;margin-top:12px}
+.atk b{font-size:17px}
+.atk small{color:var(--muted);font-family:var(--display)}
+.atk:disabled{opacity:.5;cursor:not-allowed}
+.hint{min-height:1.4em;font-family:var(--mono);font-size:13px;margin:10px 2px 0}
+.hint.bad{color:var(--magenta)} .hint.ok{color:var(--green)}
+.res{margin-top:16px;border:1px solid var(--line);border-radius:12px;padding:16px;font-family:var(--mono);font-size:14px;display:none}
+.res.show{display:block}
+.res .verdict{font-family:var(--pixel);font-size:16px;letter-spacing:1px}
+.res .deny{color:var(--magenta)} .res .ok{color:var(--green)} .res .warn{color:var(--yellow)}
+.res .row{margin-top:8px;color:var(--muted)}
+.res .row b{color:var(--fg);font-weight:700}
+footer{margin-top:auto;padding-top:22px;font-family:var(--mono);font-size:11px;color:var(--muted);text-align:center}
+.hidden{display:none}
+@media (prefers-reduced-motion:reduce){*{transition:none!important}}
+</style>
+</head>
+<body>
+  <div class="logo">▚ CENTINELA</div>
+
+  <!-- Step 1: register -->
+  <section id="join">
+    <h1>Únete al ataque.</h1>
+    <p class="muted">Elige tu @ y ataca el entorno real. Mira en la pantalla cómo Centinela te frena.</p>
+    <div class="card">
+      <label for="handle">Tu identidad de atacante</label>
+      <div class="at"><span>@</span><input id="handle" inputmode="text" autocomplete="off"
+        autocapitalize="none" spellcheck="false" maxlength="15" placeholder="tuapodo"></div>
+      <button class="btn-y" id="btnJoin" type="button">Entrar a la sala</button>
+      <p class="hint" id="joinHint">2–15 letras, números o _</p>
+    </div>
+  </section>
+
+  <!-- Step 2: attack -->
+  <section id="arena" class="hidden">
+    <h1 class="tag" style="font-size:12px;margin-bottom:0">Conectado como</h1>
+    <h1 id="who" style="color:var(--yellow);margin-top:2px">@tú</h1>
+    <p class="muted">Lanza un ataque REAL. Ninguno pasa: el ejecutor decide con llaves mínimas.</p>
+    <div class="card">
+      <button class="atk" type="button" data-attack="inject">
+        <b>✉ Engañar a la IA</b>
+        <small>Inyecta una orden como si la IA estuviera comprometida. El ejecutor la rechaza.</small>
+      </button>
+      <button class="atk" type="button" data-attack="miner">
+        <b>⛏ Lanzar un minero</b>
+        <small>Arranca un proceso que quema CPU en el servidor. Centinela lo detecta y lo mata.</small>
+      </button>
+      <p class="hint" id="atkHint">Toca un ataque.</p>
+    </div>
+    <div class="res" id="res" aria-live="polite"></div>
+  </section>
+
+  <footer>Entorno controlado del demo · todo lo que ves es real</footer>
+
+<script>
+(() => {
+  const $ = id => document.getElementById(id);
+  let handle = null, busy = false;
+
+  async function postJSON(url, body){
+    try{
+      const r = await fetch(url,{method:'POST',headers:{'Content-Type':'application/json'},
+        body:JSON.stringify(body)});
+      const data = await r.json().catch(()=>({}));
+      return {ok:r.ok, status:r.status, data};
+    }catch(e){ return {ok:false, status:0, data:{error:'Sin conexión.'}}; }
+  }
+  function setHint(el, msg, cls){ el.textContent=msg; el.className='hint'+(cls?(' '+cls):''); }
+
+  async function join(){
+    if(busy) return;
+    const raw=$('handle').value.trim();
+    if(!/^@?[A-Za-z0-9_]{2,15}$/.test(raw)){ setHint($('joinHint'),'Usa 2–15 letras, números o _.','bad'); return; }
+    busy=true; $('btnJoin').disabled=true; setHint($('joinHint'),'Entrando…');
+    const {ok,status,data}=await postJSON('/api/join',{handle:raw});
+    busy=false; $('btnJoin').disabled=false;
+    if(!ok){ setHint($('joinHint'), data.error||('Error '+status), 'bad'); return; }
+    handle=data.handle;
+    $('who').textContent='@'+handle;
+    $('join').classList.add('hidden'); $('arena').classList.remove('hidden');
+  }
+
+  const VERDICT={
+    rejected:['deny','DENEGADA'], executed:['ok','CONTENIDO'],
+    pending_approval:['warn','REQUIERE HUMANO'], launched:['warn','ATAQUE LANZADO'],
+    queued:['warn','EN COLA'], failed:['deny','FALLÓ'], recommended:['ok','SÓLO NOTA'],
+    noop:['warn','SIN ACCIÓN'],
+  };
+  const LAYERS={menu:'menú',policy:'política',infra:'infraestructura'};
+
+  function showResult(attack, o){
+    const [cls,text]=VERDICT[o.status]||['warn', (o.status||'—').toUpperCase()];
+    const lines=[];
+    if(o.layer) lines.push('<div class="row">frenado en la capa <b>'+(LAYERS[o.layer]||o.layer)+'</b></div>');
+    if(o.containment_s!=null) lines.push('<div class="row">contención real: <b>'+o.containment_s+' s</b></div>');
+    if(o.note) lines.push('<div class="row">'+o.note+'</div>');
+    if(o.error) lines.push('<div class="row">'+o.error+'</div>');
+    const head = attack==='inject'
+      ? 'Intentaste engañar a la IA.' : 'Lanzaste un minero real.';
+    $('res').innerHTML='<div class="row" style="color:var(--fg)">'+head+'</div>'
+      +'<div class="verdict '+cls+'" style="margin-top:6px">'+text+'</div>'+lines.join('');
+    $('res').classList.add('show');
+  }
+
+  async function attack(kind, btn){
+    if(busy||!handle) return;
+    busy=true; document.querySelectorAll('.atk').forEach(b=>b.disabled=true);
+    setHint($('atkHint'),'Atacando…');
+    const {ok,status,data}=await postJSON('/api/participate',{handle, attack:kind});
+    busy=false;
+    if(!ok){ setHint($('atkHint'), data.error||('Error '+status), 'bad');
+      document.querySelectorAll('.atk').forEach(b=>b.disabled=false); return; }
+    setHint($('atkHint'),'Mira la pantalla grande ☝','ok');
+    showResult(kind, data.entry||{});
+    // brief cooldown so people can read the verdict; server also rate-limits
+    setTimeout(()=>document.querySelectorAll('.atk').forEach(b=>b.disabled=false), 1200);
+  }
+
+  $('btnJoin').addEventListener('click', join);
+  $('handle').addEventListener('keydown', e=>{ if(e.key==='Enter') join(); });
+  document.querySelectorAll('.atk').forEach(b=>
+    b.addEventListener('click', ()=>attack(b.dataset.attack, b)));
+})();
+</script>
+</body>
+</html>
