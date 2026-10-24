@@ -26,10 +26,15 @@ def test_dashboard_served(client):
 
 def test_dashboard_only_fetches_existing_routes(client):
     html = client.get("/dashboard").text
-    paths = set(re.findall(r"fetch\(\s*['\"](/[^'\"?]*)", html))
-    assert "/api/state" in paths
+    paths = set(re.findall(r"(?:fetch|getJson)\(\s*['\"](/[^'\"?]*)", html))
+    assert {"/api/state", "/api/live", "/api/server-stats", "/api/me"} <= paths
     routes = {r.path for r in client.app.routes}
-    assert paths <= routes, f"dashboard fetches unknown routes: {paths - routes}"
+
+    def exists(p: str) -> bool:  # a trailing slash is a prefix of a parametrised route
+        return p in routes or (p.endswith("/") and any(r.startswith(p) for r in routes))
+
+    unknown = {p for p in paths if not exists(p)}
+    assert not unknown, f"dashboard fetches unknown routes: {unknown}"
 
 
 def test_dashboard_builds_dom_safely(client):

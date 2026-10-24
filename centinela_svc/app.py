@@ -5,6 +5,7 @@ import asyncio
 import hmac
 import logging
 import os
+import secrets
 from contextlib import asynccontextmanager
 from pathlib import Path
 
@@ -12,6 +13,7 @@ import httpx
 from fastapi import FastAPI, Header, Request
 from pydantic import BaseModel
 from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse
+from urllib.parse import urlencode, urlparse
 
 from audience import AudienceState, RateLimited, normalize_handle
 from audit import AuditLog
@@ -33,12 +35,27 @@ EXECUTOR_DATABASE_URL = os.environ.get("EXECUTOR_DATABASE_URL")  # least-privile
 OFFICE_CIDR = os.environ.get("OFFICE_CIDR", "203.0.113.0/24")  # never blocked
 APPROVER_TOKEN = os.environ.get("APPROVER_TOKEN", "")  # when set, required to resolve approvals
 
+# Google login (single shared demo org). Auth is "configured" only when all three
+# secrets are set; otherwise /dashboard stays open in demo mode (pitch fallback).
+GOOGLE_CLIENT_ID = os.environ.get("GOOGLE_CLIENT_ID", "")
+GOOGLE_CLIENT_SECRET = os.environ.get("GOOGLE_CLIENT_SECRET", "")
+SESSION_SECRET = os.environ.get("SESSION_SECRET", "")
+PUBLIC_URL = os.environ.get("PUBLIC_URL", "").rstrip("/")  # behind Cloudflare+Render: builds the redirect URI
+ADMIN_EMAILS = {e.strip().lower() for e in os.environ.get("ADMIN_EMAILS", "").split(",") if e.strip()}
+AUTH_CONFIGURED = bool(GOOGLE_CLIENT_ID and GOOGLE_CLIENT_SECRET and SESSION_SECRET)
+GOOGLE_AUTH_URL = "https://accounts.google.com/o/oauth2/v2/auth"
+GOOGLE_TOKEN_URL = "https://oauth2.googleapis.com/token"
+GOOGLE_USERINFO_URL = "https://openidconnect.googleapis.com/v1/userinfo"
+SESSION_MAX_AGE_S = 8 * 3600
+_google_transport: httpx.AsyncBaseTransport | None = None  # tests inject a mock transport
+
 _HERE = Path(__file__).resolve().parent
 PANEL = (_HERE / "panel.html").read_text(encoding="utf-8")
 _legacy_path = _HERE / "panel_legacy.html"
 LEGACY_PANEL = _legacy_path.read_text(encoding="utf-8") if _legacy_path.exists() else PANEL
 PORTAL = (_HERE / "portal.html").read_text(encoding="utf-8")
 DASHBOARD = (_HERE / "dashboard.html").read_text(encoding="utf-8")
+LOGIN = (_HERE / "login.html").read_text(encoding="utf-8")
 monitor: Monitor | None = None
 audience = AudienceState()  # in-memory; one process serves the live demo
 
@@ -71,6 +88,43 @@ app.add_middleware(
     CORSMiddleware, allow_origins=["*"], allow_methods=["GET"], allow_headers=["*"],
 )
 
+if AUTH_CONFIGURED:
+    from starlette.middleware.sessions import SessionMiddleware  # noqa: E402
+
+    app.add_middleware(
+        SessionMiddleware, secret_key=SESSION_SECRET, session_cookie="centinela_session",
+        max_age=SESSION_MAX_AGE_S, same_site="lax", https_only=PUBLIC_URL.startswith("https"),
+    )
+
+
+def _session_user(request: Request) -> dict | None:
+    """The logged-in Google user, or None (always None when auth is not configured)."""
+    if not AUTH_CONFIGURED:
+        return None
+    user = request.session.get("user")
+    return user if isinstance(user, dict) and user.get("email") else None
+
+
+def _is_admin(user: dict | None) -> bool:
+    return bool(user) and str(user["email"]).lower() in ADMIN_EMAILS
+
+
+def _redirect_uri(request: Request) -> str:
+    base = PUBLIC_URL or str(request.base_url).rstrip("/")
+    return f"{base}/auth/callback"
+
+
+def _csrf_ok(request: Request) -> bool:
+    """Session-authenticated writes need a same-site Origin plus a custom header."""
+    if request.headers.get("x-requested-with") != "centinela":
+        return False
+    origin = request.headers.get("origin")
+    if not origin:
+        return False
+    if PUBLIC_URL:
+        return origin.rstrip("/") == PUBLIC_URL
+    return urlparse(origin).netloc == request.headers.get("host", "")
+
 
 @app.get("/health")
 def health() -> dict:
@@ -95,9 +149,103 @@ def legacy_panel() -> str:
 
 
 @app.get("/dashboard", response_class=HTMLResponse)
-def dashboard() -> str:
-    """Client-facing security dashboard; reads /api/state on the same origin."""
-    return DASHBOARD
+def dashboard(request: Request):
+    """Client-facing security dashboard; requires a Google session when auth is configured."""
+    if AUTH_CONFIGURED and _session_user(request) is None:
+        return RedirectResponse("/login", status_code=303)
+    return HTMLResponse(DASHBOARD)
+
+
+@app.get("/login", response_class=HTMLResponse)
+def login(request: Request):
+    if not AUTH_CONFIGURED or _session_user(request) is not None:
+        return RedirectResponse("/dashboard", status_code=303)
+    return HTMLResponse(LOGIN)
+
+
+def _login_error(code: str) -> RedirectResponse:
+    return RedirectResponse("/login?" + urlencode({"error": code}), status_code=303)
+
+
+@app.get("/auth/google")
+def auth_google(request: Request):
+    if not AUTH_CONFIGURED:
+        return RedirectResponse("/dashboard", status_code=303)
+    state = secrets.token_urlsafe(32)
+    request.session["oauth_state"] = state
+    query = urlencode({
+        "client_id": GOOGLE_CLIENT_ID, "redirect_uri": _redirect_uri(request),
+        "response_type": "code", "scope": "openid email profile",
+        "state": state, "prompt": "select_account",
+    })
+    return RedirectResponse(f"{GOOGLE_AUTH_URL}?{query}", status_code=303)
+
+
+@app.get("/auth/callback")
+async def auth_callback(request: Request, code: str | None = None, state: str | None = None,
+                        error: str | None = None):
+    if not AUTH_CONFIGURED:
+        return RedirectResponse("/dashboard", status_code=303)
+    expected = request.session.pop("oauth_state", None)  # single use
+    if error:
+        return _login_error("denied")
+    if not (expected and state and code) or not hmac.compare_digest(str(state).encode(), str(expected).encode()):
+        return _login_error("state")
+    try:
+        async with httpx.AsyncClient(timeout=10, transport=_google_transport) as http:
+            tok = await http.post(GOOGLE_TOKEN_URL, data={
+                "code": code, "client_id": GOOGLE_CLIENT_ID, "client_secret": GOOGLE_CLIENT_SECRET,
+                "redirect_uri": _redirect_uri(request), "grant_type": "authorization_code"})
+            tok.raise_for_status()
+            access = tok.json().get("access_token")
+            if not access:
+                return _login_error("failed")
+            info = await http.get(GOOGLE_USERINFO_URL, headers={"Authorization": f"Bearer {access}"})
+            info.raise_for_status()
+            profile = info.json()
+    except Exception as exc:  # network / Google error / bad JSON
+        logging.getLogger("centinela.auth").warning("google login failed: %s", type(exc).__name__)
+        return _login_error("failed")
+    if profile.get("email_verified") is not True or not profile.get("email"):
+        return _login_error("email")
+    request.session["user"] = {"email": str(profile["email"]).lower(),
+                               "name": str(profile.get("name") or profile["email"]),
+                               "picture": str(profile.get("picture") or "")}
+    return RedirectResponse("/dashboard", status_code=303)
+
+
+@app.post("/logout")
+def logout(request: Request):
+    if AUTH_CONFIGURED:
+        request.session.clear()
+    return RedirectResponse("/", status_code=303)
+
+
+@app.get("/api/me")
+def api_me(request: Request) -> JSONResponse:
+    """Who is looking, and whether they may resolve approvals (drives the dashboard UI)."""
+    if not AUTH_CONFIGURED:
+        # Demo mode keeps the legacy rule: open unless an approver token is configured.
+        body = {"auth": "demo", "user": None, "can_approve": not APPROVER_TOKEN}
+    else:
+        user = _session_user(request)
+        body = {"auth": "google", "can_approve": _is_admin(user),
+                "user": {k: user.get(k, "") for k in ("name", "email", "picture")} if user else None}
+    return JSONResponse(body, headers={"Cache-Control": "no-store"})
+
+
+@app.get("/api/server-stats")
+async def server_stats() -> JSONResponse:
+    """Container CPU/memory of the victim, fetched server-side (502 + nulls on failure)."""
+    try:
+        resp = await monitor.http.get(f"{VICTIM_URL}/monitor/stats", timeout=3)
+        resp.raise_for_status()
+        raw = resp.json()
+        num = lambda v: v if isinstance(v, (int, float)) and not isinstance(v, bool) else None  # noqa: E731
+        return JSONResponse({"cpu_percent": num(raw.get("cpu_percent")), "mem_percent": num(raw.get("mem_percent"))})
+    except Exception as exc:
+        return JSONResponse({"cpu_percent": None, "mem_percent": None,
+                             "error": f"victim stats unavailable ({type(exc).__name__})"}, status_code=502)
 
 
 @app.get("/api/state")
@@ -226,12 +374,20 @@ class ApprovalRequest(BaseModel):
 
 
 @app.post("/api/approvals/{proposal_id}")
-async def resolve_approval(proposal_id: int, req: ApprovalRequest,
+async def resolve_approval(proposal_id: int, req: ApprovalRequest, request: Request,
                            x_approver_token: str | None = Header(default=None)):
     # The panel is public: without this, anyone could approve a high-impact action.
-    if APPROVER_TOKEN and not (x_approver_token and
-                               hmac.compare_digest(x_approver_token.encode(), APPROVER_TOKEN.encode())):
-        return JSONResponse({"error": "unauthorized"}, status_code=401)
+    token_ok = bool(APPROVER_TOKEN and x_approver_token and
+                    hmac.compare_digest(x_approver_token.encode(), APPROVER_TOKEN.encode()))
+    if not token_ok:
+        if AUTH_CONFIGURED:
+            user = _session_user(request)
+            if user is None:
+                return JSONResponse({"error": "unauthorized"}, status_code=401)
+            if not _is_admin(user) or not _csrf_ok(request):
+                return JSONResponse({"error": "forbidden"}, status_code=403)
+        elif APPROVER_TOKEN:  # demo mode: legacy behavior, token only
+            return JSONResponse({"error": "unauthorized"}, status_code=401)
     decision = await monitor.resolve_approval(proposal_id, req.approve)
     if decision is None:
         return JSONResponse({"error": "no pending approval with that id"}, status_code=404)

@@ -1,0 +1,57 @@
+<!doctype html>
+<html lang="es">
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<title>Centinela · Iniciar sesión</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Urbanist:wght@300..800&family=JetBrains+Mono:wght@400;700&display=swap">
+<style>
+:root{
+  --bg:#111010; --panel:#1a1919; --line:#2c2a2a; --fg:#f2f2f2; --muted:#a3a0a0;
+  --yellow:#ffdd00; --magenta:#e53aa3;
+  --display:"Urbanist",system-ui,sans-serif;
+  --mono:"JetBrains Mono",ui-monospace,Consolas,monospace;
+  color-scheme:dark;
+}
+*{box-sizing:border-box}
+body{background:var(--bg);color:var(--fg);font-family:var(--display);font-size:16px;line-height:1.5;margin:0;min-height:100vh;display:grid;place-items:center;padding:16px}
+:focus-visible{outline:2px solid var(--yellow);outline-offset:3px}
+h1,p{margin:0}
+.card{width:100%;max-width:420px;background:var(--panel);border:1px solid var(--line);border-radius:6px;padding:28px 24px;display:flex;flex-direction:column;gap:16px}
+.brand{display:flex;align-items:center;font-size:22px;font-weight:700;letter-spacing:.5px}
+.mark{display:inline-grid;grid-template-columns:8px 8px;gap:2px;margin-right:10px}
+.mark i{width:8px;height:8px;background:var(--yellow);display:block}
+.mark i:nth-child(2){background:var(--magenta)}
+h1{font-size:20px;font-weight:600}
+.muted{color:var(--muted);font-size:14px}
+.err{border:1px solid var(--magenta);border-left-width:4px;border-radius:6px;padding:10px 12px;font-size:14px}
+.btn{display:flex;align-items:center;justify-content:center;gap:10px;min-height:48px;background:var(--yellow);color:#111;border:1px solid var(--yellow);border-radius:6px;font-family:var(--mono);font-size:14px;font-weight:700;text-decoration:none}
+.btn:hover{transform:translateY(-1px)}
+.back{font-family:var(--mono);font-size:13px;color:var(--muted);text-align:center}
+@media (prefers-reduced-motion:reduce){*{transition:none!important}}
+</style>
+<body>
+<main class="card">
+  <div class="brand"><span class="mark" aria-hidden="true"><i></i><i></i><i></i><i></i></span>Centinela</div>
+  <h1>Entra a tu panel</h1>
+  <p class="muted">Usa tu cuenta de Google para ver el estado de tus servidores y las decisiones de Centinela.</p>
+  <p class="err" id="err" role="alert" hidden></p>
+  <a class="btn" href="/auth/google">Continuar con Google</a>
+  <a class="back" href="/">Volver al inicio</a>
+</main>
+<script>
+(() => {
+  const MESSAGES = {
+    denied: 'Cancelaste el inicio de sesión con Google.',
+    state: 'La sesión de inicio expiró o no es válida. Inténtalo de nuevo.',
+    email: 'Tu cuenta de Google no tiene el correo verificado.',
+    failed: 'No pudimos completar el inicio de sesión con Google. Inténtalo de nuevo.',
+  };
+  const code = new URLSearchParams(location.search).get('error');
+  if (code) {
+    const e = document.getElementById('err');
+    e.textContent = Object.prototype.hasOwnProperty.call(MESSAGES, code) ? MESSAGES[code] : MESSAGES.failed;
+    e.hidden = false;
+  }
+})();
+</script>

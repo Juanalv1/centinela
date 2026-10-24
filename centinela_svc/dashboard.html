@@ -74,6 +74,16 @@ td.m{font-family:var(--mono)}
 .empty{color:var(--muted);padding:12px 0}
 ul.log{list-style:none;margin:10px 0 0;padding:0;font-family:var(--mono);font-size:13px;display:flex;flex-direction:column;gap:6px}
 .note{font-size:14px;color:var(--muted);margin-top:10px}
+.demo{padding:10px 16px;border:1px solid var(--yellow);border-radius:6px;font-family:var(--mono);font-size:13px;color:var(--yellow)}
+.user{display:flex;align-items:center;gap:10px;font-size:14px}
+.user img{width:32px;height:32px;border-radius:50%;border:1px solid var(--line)}
+.user form{margin:0}
+.btnl,.btns{display:inline-flex;align-items:center;min-height:44px;padding:0 14px;border:1px solid var(--line);border-radius:6px;background:transparent;color:var(--fg);font-family:var(--mono);font-size:13px;text-decoration:none;cursor:pointer}
+.btnl:hover,.btns:hover{border-color:var(--fg)}
+.btns.ok{border-color:var(--yellow);color:var(--yellow)}
+.btns[disabled]{opacity:.5;cursor:default}
+.acts{display:flex;gap:8px}
+.cta-side{margin-top:auto}
 </style>
 <body>
 <div class="shell">
@@ -82,10 +92,13 @@ ul.log{list-style:none;margin:10px 0 0;padding:0;font-family:var(--mono);font-si
     <nav aria-label="Secciones">
       <ul id="nav"></ul>
     </nav>
+    <a class="btnl cta-side" href="/#acceso">Quiero esto para mi empresa</a>
   </aside>
   <main class="content">
+    <div class="demo" id="demoBanner" hidden>Modo demo · inicio de sesión desactivado</div>
     <div class="top">
       <div><h1>Resumen</h1><p class="muted mono" id="host">Servidor: sin datos</p></div>
+      <div class="user" id="user"></div>
       <div class="pillst" id="live" role="status"><span class="dot" aria-hidden="true"></span><span id="liveText">Conectando</span></div>
     </div>
     <div class="banner" id="banner" role="status">
@@ -98,15 +111,16 @@ ul.log{list-style:none;margin:10px 0 0;padding:0;font-family:var(--mono);font-si
       <h2 id="h-srv">Servidores</h2>
       <div class="grid2">
         <div class="card">
-          <h3>CPU del servidor</h3>
+          <h3>CPU del contenedor</h3>
           <p class="kpi"><span class="v" id="cpuNow">sin datos</span></p>
           <svg class="spark" id="spark" viewBox="0 0 300 80" preserveAspectRatio="none" role="img" aria-label="CPU de las últimas lecturas"></svg>
-          <p class="note">Memoria: sin datos (el estado actual no la expone).</p>
+          <p class="note" id="memNote">Memoria: sin datos</p>
         </div>
         <div class="card">
           <h3>Procesos</h3>
           <div class="tw" id="procs"></div>
         </div>
+        <div class="card"><h3>Actividad de atacantes</h3><ul class="log" id="actLog"></ul></div>
       </div>
     </section>
 
@@ -126,7 +140,7 @@ ul.log{list-style:none;margin:10px 0 0;padding:0;font-family:var(--mono);font-si
     <section id="aprobaciones" aria-labelledby="h-apr">
       <h2 id="h-apr">Aprobaciones</h2>
       <div class="card"><div class="tw" id="apprs"></div>
-        <p class="note">Solo lectura. Las acciones de alto impacto se resuelven por la API con el token de aprobador (cabecera X-Approver-Token); esta página no guarda ese token.</p></div>
+        <p class="note" id="apprNote"></p><p class="note" id="apprMsg" role="status"></p></div>
     </section>
 
     <section id="politica" aria-labelledby="h-pol">
@@ -145,6 +159,9 @@ ul.log{list-style:none;margin:10px 0 0;padding:0;font-family:var(--mono);font-si
   const $ = id => document.getElementById(id);
   const SVGNS = 'http://www.w3.org/2000/svg';
   const POLL_MS = 2000;
+  let ME = {auth: 'demo', user: null, can_approve: false};
+  let LIVE = null, STATS = null, STATE = null;
+  const cpuHist = [], busy = new Set();
   const NAV = [
     ['resumen', 'Resumen', 'M3 11l9-8 9 8v9a1 1 0 0 1-1 1h-5v-6H9v6H4a1 1 0 0 1-1-1z'],
     ['incidentes', 'Incidentes', 'M12 3l10 18H2z M12 10v5 M12 18h.01'],
@@ -266,20 +283,27 @@ ul.log{list-style:none;margin:10px 0 0;padding:0;font-family:var(--mono);font-si
       ['Incidentes contenidos', String(incidents.length), 'desde el arranque del servicio'],
       ['Propuestas rechazadas', String(rejected), 'entre las últimas ' + decisions.length + ' decisiones'],
       ['Aprobaciones pendientes', String(approvals.length), approvals.length ? 'requieren una persona' : 'nada pendiente'],
+      ['Atacantes', LIVE ? String(LIVE.people) : 'sin datos', 'registrados desde /unirse'],
     ];
     const k = clear($('kpis'));
     kpis.forEach(([l, v, n]) => { const c = el('div', null, 'card kpi'); c.append(el('div', l, 'l'), el('div', v, 'v'), el('div', n, 'n')); k.appendChild(c); });
 
     // server activity
-    $('cpuNow').textContent = s.host_cpu != null ? Math.round(s.host_cpu) + '%' : 'sin datos';
-    const sp = clear($('spark')), pts = samples.slice(-60), n = pts.length;
-    sp.classList.toggle('hot', n > 0 && (pts[n - 1].cpu || 0) > 60);
+    const cpu = STATS ? STATS.cpu_percent : null, mem = STATS ? STATS.mem_percent : null;
+    $('cpuNow').textContent = cpu != null ? Math.round(cpu) + '%' : 'sin datos';
+    $('memNote').textContent = 'Memoria: ' + (mem != null ? Math.round(mem) + '%' : 'sin datos');
+    const sp = clear($('spark')), pts = cpuHist.slice(-60), n = pts.length;
+    sp.classList.toggle('hot', n > 0 && pts[n - 1] > 60);
     if (n > 1) {
       const line = document.createElementNS(SVGNS, 'polyline');
       line.setAttribute('vector-effect', 'non-scaling-stroke');
-      line.setAttribute('points', pts.map((p, i) => (i * 300 / (n - 1)).toFixed(1) + ',' + (78 - Math.min(Math.max(p.cpu || 0, 0), 100) * 0.76).toFixed(1)).join(' '));
+      line.setAttribute('points', pts.map((v, i) => (i * 300 / (n - 1)).toFixed(1) + ',' + (78 - Math.min(Math.max(v, 0), 100) * 0.76).toFixed(1)).join(' '));
       sp.appendChild(line);
     }
+    // attacker activity (handles are attacker-controlled: textContent only)
+    const al = clear($('actLog')), act = LIVE ? (LIVE.activity || []).slice(0, 8) : [];
+    if (!act.length) al.appendChild(el('li', LIVE ? 'Sin actividad todavía.' : 'sin datos', 'muted'));
+    act.forEach(x => al.appendChild(el('li', time(x.ts) + ' @' + x.handle + ' · ' + x.attack + ' · ' + (x.status || 'sin datos'))));
     const procs = (s.processes || []).slice(0, 8).map(p => [
       String(p.pid), p.name, p.cpu_percent != null ? p.cpu_percent.toFixed(1) + '%' : 'sin datos',
       p.managed ? el('span', 'gestionado', 'badge b-auto') : el('span', 'protegido', 'badge b-neutral')]);
@@ -316,26 +340,88 @@ ul.log{list-style:none;margin:10px 0 0;padding:0;font-family:var(--mono);font-si
     clear($('incs')).appendChild(table(['Hora', 'Acción', 'Objetivo', 'Carril', 'Contención'], incRows, 'Sin incidentes: Centinela no ha tenido que actuar.'));
 
     // approvals (read-only)
-    const apRows = approvals.map(a => [String(a.id), a.action, a.target ? a.target.value : 'sin datos', a.confidence,
-      el('span', a.rationale || 'sin datos')]);
-    clear($('apprs')).appendChild(table(['ID', 'Acción', 'Objetivo', 'Confianza', 'Motivo'], apRows, 'Nada pendiente de aprobación.'));
-    $('apprs').querySelectorAll('td:last-child').forEach(td => td.classList.add('wrap'));
+    const apHeads = ['ID', 'Acción', 'Objetivo', 'Confianza', 'Motivo'];
+    if (ME.can_approve) apHeads.push('Decisión');
+    const apRows = approvals.map(a => {
+      const row = [String(a.id), a.action, a.target ? a.target.value : 'sin datos', a.confidence,
+        el('span', a.rationale || 'sin datos', 'rat')];
+      if (ME.can_approve) {
+        const box = el('div', null, 'acts');
+        [['Aprobar', true, 'btns ok'], ['Rechazar', false, 'btns']].forEach(([label, yes, cls]) => {
+          const b = el('button', label, cls); b.type = 'button'; b.disabled = busy.has(a.id);
+          b.addEventListener('click', () => resolveApproval(a.id, yes));
+          box.appendChild(b);
+        });
+        row.push(box);
+      }
+      return row;
+    });
+    clear($('apprs')).appendChild(table(apHeads, apRows, 'Nada pendiente de aprobación.'));
+    $('apprs').querySelectorAll('td:nth-child(5)').forEach(td => td.classList.add('wrap'));
+    $('apprNote').textContent = ME.can_approve ? 'Tu cuenta puede aprobar o rechazar acciones de alto impacto.'
+      : ME.auth === 'google' ? 'Solo lectura: tu cuenta no está en la lista de administradores que pueden aprobar.'
+      : 'Solo lectura. Las acciones de alto impacto se resuelven por la API con el token de aprobador (cabecera X-Approver-Token); esta página no guarda ese token.';
 
     // audit log
     const auRows = audit.slice(0, 15).map(e => [String(e.seq), time(e.ts), e.kind, (e.prev_sha256 || '').slice(0, 8)]);
     clear($('audit')).appendChild(table(['#', 'Hora', 'Tipo', 'Hash previo'], auRows, 'Sin entradas de auditoría.'));
   }
 
+  function renderUser() {
+    $('demoBanner').hidden = ME.auth !== 'demo';
+    const u = clear($('user'));
+    if (!ME.user) return;
+    if (ME.user.picture) {
+      const img = el('img'); img.src = ME.user.picture; img.alt = ''; img.width = 32; img.height = 32;
+      img.referrerPolicy = 'no-referrer'; img.setAttribute('referrerpolicy', 'no-referrer');
+      u.appendChild(img);
+    }
+    u.appendChild(el('span', ME.user.name || ME.user.email));
+    const f = el('form'); f.method = 'post'; f.action = '/logout';
+    const b = el('button', 'Cerrar sesión', 'btnl'); b.type = 'submit';
+    f.appendChild(b); u.appendChild(f);
+  }
+
+  async function resolveApproval(id, approve) {
+    busy.add(id); if (STATE) render(STATE);
+    const msg = $('apprMsg');
+    try {
+      const r = await fetch('/api/approvals/' + id, {
+        method: 'POST',
+        headers: {'Content-Type': 'application/json', 'X-Requested-With': 'centinela'},
+        body: JSON.stringify({approve}),
+      });
+      msg.textContent = r.ok ? (approve ? 'Acción aprobada.' : 'Acción rechazada.')
+        : r.status === 404 ? 'Esa aprobación ya no está pendiente.'
+        : 'No se pudo resolver (HTTP ' + r.status + ').';
+    } catch (e) { msg.textContent = 'No se pudo contactar a Centinela.'; }
+    busy.delete(id); poll();
+  }
+
+  const getJson = async url => { const r = await fetch(url); if (!r.ok) throw new Error('HTTP ' + r.status); return r.json(); };
+
+  async function pollAux() {
+    const [live, stats] = await Promise.allSettled([getJson('/api/live'), getJson('/api/server-stats')]);
+    LIVE = live.status === 'fulfilled' ? live.value : null;
+    STATS = stats.status === 'fulfilled' ? stats.value : null;
+    if (STATS && STATS.cpu_percent != null) cpuHist.push(STATS.cpu_percent);
+  }
+
   async function poll() {
     try {
-      const r = await fetch('/api/state');
+      const [, r] = await Promise.all([pollAux(), fetch('/api/state')]);
       if (!r.ok) throw new Error('HTTP ' + r.status);
-      render(await r.json());
+      STATE = await r.json();
+      render(STATE);
     } catch (e) {
       $('live').classList.add('bad');
       $('liveText').textContent = 'Sin conexión con Centinela';
     }
   }
-  buildNav(); renderPolicy(); poll(); setInterval(poll, POLL_MS);
+  async function init() {
+    try { ME = await getJson('/api/me'); } catch (e) { /* keep read-only demo defaults */ }
+    renderUser(); poll();
+  }
+  buildNav(); renderPolicy(); init(); setInterval(poll, POLL_MS);
 })();
 </script>
