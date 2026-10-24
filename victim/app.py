@@ -28,7 +28,7 @@ JOBS_DIR = Path(__file__).resolve().parent / "jobs"
 # Allowlist: job name -> extra argv. The fake pool string is an unused argv
 # string that gives the AI a realistic signal; the job does no networking.
 JOB_ARGS = {
-    "report": ["--pool", "stratum+tcp://pool.example.invalid:3333", "--threads", "1"],
+    "report": ["--pool", "stratum+tcp://pool.example.invalid:3333", "--threads", "4"],
 }
 JOB_MAX_SECONDS = 600
 
@@ -54,6 +54,60 @@ _job: subprocess.Popen | None = None
 _proc_cache: dict[int, psutil.Process] = {}
 
 psutil.cpu_percent(interval=None)  # prime host CPU counter
+
+# --- container CPU (cgroup v2) --------------------------------------------
+# psutil.cpu_percent() reports the whole physical host (16 shared cores on
+# Render), so this container's own load is lost in the neighbours' noise. We
+# instead report CPU as a percentage of the container's OWN quota, so a miner
+# pegging its slice reads ~100% and its death reads ~0% — a signal both the
+# panel and the detector can trust.
+_CPU_STAT = Path("/sys/fs/cgroup/cpu.stat")  # cgroup v2
+_CPU_MAX = Path("/sys/fs/cgroup/cpu.max")
+_cpu_prev: dict[str, float | None] = {"usage_usec": None, "t": None}
+
+
+def _cgroup_quota_cores() -> float | None:
+    """Cores the container may use, or None when uncapped/unavailable."""
+    try:
+        quota, period = _CPU_MAX.read_text().split()
+        if quota == "max":
+            return None
+        return int(quota) / int(period)
+    except (OSError, ValueError):
+        return None
+
+
+def _cgroup_usage_usec() -> int | None:
+    try:
+        for line in _CPU_STAT.read_text().splitlines():
+            if line.startswith("usage_usec"):
+                return int(line.split()[1])
+    except (OSError, ValueError):
+        return None
+    return None
+
+
+def _container_cpu_percent() -> float | None:
+    """CPU use as a percentage of the container's quota, measured between calls.
+
+    Returns None when cgroup v2 is unavailable (e.g. local dev / macOS), so the
+    caller can fall back to another signal.
+    """
+    usage = _cgroup_usage_usec()
+    now = time.monotonic()
+    prev_u, prev_t = _cpu_prev["usage_usec"], _cpu_prev["t"]
+    _cpu_prev["usage_usec"], _cpu_prev["t"] = usage, now
+    if usage is None or prev_u is None or prev_t is None or now <= prev_t:
+        return None  # unavailable, or first call priming the counter
+    cores = _cgroup_quota_cores() or psutil.cpu_count() or 1
+    used_s = (usage - prev_u) / 1e6
+    avail_s = (now - prev_t) * cores
+    if avail_s <= 0:
+        return None
+    return max(0.0, min(100.0, used_s / avail_s * 100.0))
+
+
+_container_cpu_percent()  # prime the cgroup counter
 
 
 def _reap_job() -> None:
@@ -104,9 +158,16 @@ def metrics() -> dict:
                 continue
         for gone in set(_proc_cache) - seen:
             _proc_cache.pop(gone, None)
+    host_cpu = psutil.cpu_percent(interval=None)
+    # Container CPU when cgroup is available; otherwise fall back to the sum of
+    # this container's visible processes (local dev), then to the host.
+    cpu = _container_cpu_percent()
+    if cpu is None:
+        cpu = min(100.0, sum(p["cpu_percent"] for p in processes)) or host_cpu
     return {
         "server_time": time.time(),
-        "cpu_percent": psutil.cpu_percent(interval=None),
+        "cpu_percent": round(cpu, 1),           # the victim's OWN load (0-100)
+        "host_cpu_percent": host_cpu,           # whole shared host, for reference
         "cpu_count": psutil.cpu_count(),
         "processes": processes,
     }
