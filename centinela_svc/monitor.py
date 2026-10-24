@@ -8,7 +8,7 @@ from collections import deque
 
 import httpx
 
-from domain import Proposal
+from domain import Decision, Proposal
 from executor import Executor
 from reasoner import ClaudeReasoner
 
@@ -30,6 +30,7 @@ class Monitor:
         self.proposals: deque[dict] = deque(maxlen=50)
         self.decisions: deque[dict] = deque(maxlen=50)
         self.incidents: list[dict] = []
+        self._by_id: dict[int, Proposal] = {}  # proposals awaiting approval are looked up here
         self.last_error: str | None = None
         self.reasoner_busy = False
         self._known_pids: set[int] | None = None
@@ -81,17 +82,30 @@ class Monitor:
         async with self._lock:
             self.proposals.appendleft(proposal.to_dict())
             decision = await self.executor.handle(proposal, self.latest)
-            self.decisions.appendleft(decision.to_dict())
-            if decision.status == "executed":
-                self._open_incident(proposal, decision)
-            return decision.to_dict()
+            if decision.status == "pending_approval":
+                self._by_id[proposal.id] = proposal
+            return self._record(proposal, decision)
 
-    def _open_incident(self, proposal: Proposal, decision) -> None:
-        proc = next((p for p in (self.latest or {}).get("processes", []) if p["pid"] == proposal.pid), {})
+    async def resolve_approval(self, proposal_id: int, approve: bool) -> dict | None:
+        async with self._lock:
+            decision = await self.executor.resolve(proposal_id, approve, self.latest)
+            if decision is None:
+                return None
+            return self._record(self._by_id.pop(proposal_id, None), decision)
+
+    def _record(self, proposal: Proposal | None, decision: Decision) -> dict:
+        self.decisions.appendleft(decision.to_dict())
+        if decision.status == "executed" and proposal is not None and proposal.action == "kill_process":
+            self._open_incident(proposal, decision)
+        return decision.to_dict()
+
+    def _open_incident(self, proposal: Proposal, decision: Decision) -> None:
+        pid = int(proposal.target.value)
+        proc = next((p for p in (self.latest or {}).get("processes", []) if p["pid"] == pid), {})
         start = proc.get("create_time", proposal.created_at) + self.clock_offset
         self.incidents.insert(0, {
-            "pid": proposal.pid,
-            "name": proposal.nombre,
+            "pid": pid,
+            "name": proc.get("name"),
             "cmdline": " ".join(proc.get("cmdline") or []),
             "attack_start": start,
             "proposal_at": proposal.created_at,
@@ -120,6 +134,7 @@ class Monitor:
             "host_cpu": (self.latest or {}).get("cpu_percent"),
             "proposals": list(self.proposals),
             "decisions": list(self.decisions),
+            "approvals": self.executor.pending(),
             "incidents": self.incidents,
             "audit": self.executor.audit.entries[-40:][::-1],
         }

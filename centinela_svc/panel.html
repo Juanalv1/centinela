@@ -20,7 +20,8 @@
   .cmd { font-family:ui-monospace, monospace; color:var(--mut); word-break:break-all; }
   .pill { padding:1px 8px; border-radius:10px; font-size:12px; font-weight:600; }
   .executed { background:#12361e; color:var(--ok); } .rejected, .failed { background:#3d1418; color:var(--bad); }
-  .noop { background:#2a2f38; color:var(--mut); }
+  .noop, .recommended { background:#2a2f38; color:var(--mut); }
+  .pending_approval { background:#3a2d0c; color:var(--warn); }
   .big { font-size:28px; font-weight:700; }
   button { background:var(--bad); color:white; border:0; border-radius:6px; padding:8px 12px; font-weight:600; cursor:pointer; }
   pre { white-space:pre-wrap; word-break:break-all; font-size:11px; margin:0; max-height:320px; overflow:auto; }
@@ -50,6 +51,10 @@
     <div id="decision" class="mut">Esperando…</div>
   </section>
   <section>
+    <h2>Pendientes de aprobación</h2>
+    <div id="approvals" class="mut">Nada pendiente.</div>
+  </section>
+  <section>
     <h2>Incidentes y tiempos</h2>
     <div id="incidents" class="mut">Sin incidentes.</div>
   </section>
@@ -70,6 +75,7 @@
 <script>
 const $ = (id) => document.getElementById(id);
 const esc = (s) => String(s ?? "").replace(/[&<>"]/g, (c) => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[c]));
+const LAYERS = { menu: "menú", policy: "política", infra: "infraestructura" };
 const t = (ts) => ts ? new Date(ts * 1000).toLocaleTimeString() : "—";
 
 function chart(samples) {
@@ -90,9 +96,15 @@ function render(s) {
   const p = s.proposals[0];
   if (p) $("proposal").innerHTML = p.discarded
     ? `<span class="pill rejected">descartada</span> ${esc(p.error)} <span class="mut">(${t(p.created_at)})</span>`
-    : `<b>${esc(p.accion)}</b> ${p.pid ? `→ pid ${p.pid} (${esc(p.nombre)})` : ""} <span class="mut">[${esc(p.source)}, ${t(p.created_at)}${p.latency_s ? ", " + p.latency_s + " s" : ""}]</span><p>${esc(p.justificacion)}</p>`;
+    : `<b>${esc(p.action)}</b> ${p.target ? `→ ${esc(p.target.type)} ${esc(p.target.value)}` : ""} <span class="mut">[${esc(p.source)}, confianza ${esc(p.confidence)}, ${t(p.created_at)}${p.latency_s ? ", " + p.latency_s + " s" : ""}]</span><p>${esc(p.rationale)}</p>`
+      + (p.evidence && p.evidence.length ? `<ul class="mut">${p.evidence.map((e) => `<li>${esc(e)}</li>`).join("")}</ul>` : "");
   const d = s.decisions[0];
-  if (d) $("decision").innerHTML = `<span class="pill ${esc(d.status)}">${esc(d.status)}</span> <span class="mut">${t(d.at)}</span><p>${esc(d.reason)}</p>`;
+  if (d) $("decision").innerHTML = `<span class="pill ${esc(d.status)}">${esc(d.status)}</span>`
+    + (d.layer ? ` <b>frenada por la capa: ${esc(LAYERS[d.layer] || d.layer)}</b>` : "")
+    + ` <span class="mut">${t(d.at)}</span><p>${esc(d.reason)}</p>`;
+  $("approvals").innerHTML = s.approvals.length ? s.approvals.map((a) =>
+    `<div><b>#${a.id} ${esc(a.action)}</b> → ${esc(a.target?.type)} ${esc(a.target?.value)} <span class="mut">(confianza ${esc(a.confidence)})</span><p>${esc(a.rationale)}</p></div>`).join("<hr>")
+    : "Nada pendiente.";
   if (s.incidents.length) $("incidents").innerHTML = s.incidents.map((i) =>
     `<div><b>pid ${i.pid} ${esc(i.name)}</b> <span class="mut">inicio ${t(i.attack_start)}</span><br>`
     + `detección: <b>${i.detection_s} s</b> · contención: <b>${i.containment_s} s</b>`
