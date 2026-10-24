@@ -9,7 +9,7 @@ RUN pip install --no-cache-dir -r requirements.txt \
     && cp /bin/sleep /usr/local/bin/db-sim \
     && command -v setpriv
 
-COPY app.py sysload.py pyme.py schema.sql roles.sql entrypoint.sh monitor.html ./
+COPY app.py behavior.py sysload.py pyme.py schema.sql roles.sql entrypoint.sh monitor.html ./
 COPY jobs/ ./jobs/
 RUN sed -i 's/\r$//' entrypoint.sh && chmod 0755 entrypoint.sh && chmod -R a+rX /app
 
