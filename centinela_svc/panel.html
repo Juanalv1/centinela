@@ -90,6 +90,17 @@ section{padding-block:72px}
 .orb-states span,.orb-states button{border:1px solid var(--line);border-radius:6px;padding:3px 8px;color:var(--muted);background:none;font:inherit;letter-spacing:inherit}
 .orb-states span.on{color:var(--fg);border-color:var(--muted)}
 .orb-states button{cursor:pointer}.orb-states button[aria-pressed=true]{color:var(--yellow);border-color:var(--yellow)}
+.stage{display:flex;flex-direction:column;align-items:center;gap:22px;padding:22px 20px 28px;min-height:0;border:0;text-align:center}
+.stage-top{align-self:stretch;display:flex;justify-content:space-between;font-family:var(--mono);font-size:12px;letter-spacing:1.5px;text-transform:uppercase;color:var(--muted)}
+.stage .orb{width:min(280px,70vw);height:min(280px,70vw);padding:10px}
+.stage .think{border:0;padding:0;max-width:640px;font-family:var(--display);font-size:22px;line-height:1.45;min-height:3em;flex:none}
+.hud{display:flex;align-items:center;justify-content:center;gap:28px;flex-wrap:wrap;border-top:1px solid var(--line);padding-top:18px;align-self:stretch}
+.hud .stamp{font-size:16px;padding:8px 12px;border-width:2px}
+.hud-k{display:flex;align-items:center;gap:10px;font-family:var(--mono);font-size:12px;text-transform:uppercase;letter-spacing:1px;color:var(--muted)}
+.hud-k b{font-family:var(--pixel);font-weight:400;font-size:20px;color:var(--yellow)}
+.hud-k canvas{width:110px;height:22px}
+.voice{border:1px solid var(--line);border-radius:6px;padding:6px 12px;background:none;color:var(--muted);font-family:var(--mono);font-size:12px;cursor:pointer}
+.voice[aria-pressed=true]{color:var(--yellow);border-color:var(--yellow)}
 .think{font-family:var(--mono);font-size:13px;line-height:1.5;color:var(--fg);border-top:1px dashed var(--line);padding-top:12px;flex:1;white-space:pre-wrap;overflow-wrap:anywhere}
 .cell.ai.pwned{background:repeating-linear-gradient(0deg,#2a0f1f 0 2px,#1a1919 2px 4px)}
 .cell.ai.pwned .think{color:var(--magenta)}
@@ -206,36 +217,17 @@ footer{border-top:1px solid var(--line);padding-block:32px;font-family:var(--mon
       <p class="muted" style="margin-top:12px">Simulación interactiva. Lanza un ataque y mira cómo cada propuesta de la IA choca contra la pared del ejecutor.</p>
     </div>
     <div class="room" role="region" aria-label="Simulación de la sala de control">
-      <div class="room-head"><span>srv-prod-01 · <span id="status">vigilando</span></span><span class="clock" id="clock">03:12:00</span><span>respuesta: <b id="rt" style="color:var(--yellow)">—</b></span></div>
-      <div class="grid3">
-        <div class="cell ai" id="aiCell">
-          <h4><span>01 · IA</span><span>piensa · sin llaves</span></h4>
-          <div class="orb-box">
-            <div class="orb" id="orb" data-state="idle"><canvas id="orbCanvas" width="240" height="240" aria-hidden="true"></canvas></div>
-            <div class="orb-states"><span data-s="idle" class="on">Idle</span><span data-s="listening">Analiza</span><span data-s="talking">Habla</span><button id="voiceBtn" aria-pressed="false">🔇 Voz</button></div>
-          </div>
-          <div class="logs" id="logs" aria-live="off"></div>
-          <div class="think" id="think" aria-live="polite">Esperando eventos…</div>
-          <div class="wall" aria-hidden="true"></div>
-        </div>
-        <div class="cell">
-          <h4><span>02 · Ejecutor</span><span>decide</span></h4>
-          <div class="card" id="proposal"><span class="k">propuesta:</span> ninguna</div>
+      <div class="stage cell ai" id="aiCell">
+        <div class="stage-top"><span>srv-prod-01 · <span id="status">vigilando</span></span><span class="clock" id="clock">--:--:--</span></div>
+        <div class="orb" id="orb" data-state="idle"><canvas id="orbCanvas" width="480" height="480" aria-hidden="true"></canvas></div>
+        <div class="think" id="think" aria-live="polite">Esperando eventos…</div>
+        <div class="hud">
           <div class="stamp" id="stamp">EN ESPERA</div>
-          <div class="rule-list" id="allow">
-            <span data-a="kill_process">✓ kill_process</span>
-            <span data-a="block_ip">✓ block_ip</span>
-            <span data-a="disable_credential">✓ disable_credential (no admin)</span>
-            <span data-a="isolate_host">? isolate_host · requiere humano</span>
-            <span data-a="x">✗ delete · shutdown · admin</span>
-          </div>
+          <div class="hud-k"><span>CPU</span><b id="mVal">—</b><canvas id="chart" width="300" height="60" aria-label="CPU en vivo"></canvas></div>
+          <div class="hud-k"><span>respuesta</span><b id="rt">—</b></div>
+          <button class="voice" id="voiceBtn" type="button" aria-pressed="false">🔇 Voz</button>
         </div>
-        <div class="cell">
-          <h4><span>03 · Servidor</span><span>realidad</span></h4>
-          <canvas id="chart" width="600" height="340" aria-label="Gráfico en vivo"></canvas>
-          <div class="metric"><span id="mLabel">CPU</span><b id="mVal">12%</b></div>
-          <div class="host" id="host">red: conectado · admin: activo</div>
-        </div>
+        <div hidden><div id="logs"></div><div id="proposal"></div><div id="allow"></div><span id="mLabel"></span><div class="orb-states"></div></div>
       </div>
       <div class="controls">
         <button class="btn y" id="bMiner" type="button" data-scn="miner">Lanzar minero</button>
