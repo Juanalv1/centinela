@@ -27,7 +27,11 @@ def process_signature(proc: dict) -> str:
 
 
 class Baseline:
-    """Workloads seen during a warm-up window; afterwards, anything else is new."""
+    """Workloads seen during a warm-up window; afterwards, anything else is new.
+
+    Job-runner children (`managed`) are never learned: the job runner is the
+    exposed foothold, so one running across a redeploy must not become normal.
+    """
 
     def __init__(self, window_s: float, started_at: float) -> None:
         self.window_s = window_s
@@ -38,7 +42,7 @@ class Baseline:
         ready = now - self.started_at >= self.window_s
         for proc in metrics.get("processes", []):
             sig = process_signature(proc)
-            if not ready:
+            if not ready and proc.get("managed") is not True:
                 self.known.add(sig)
             proc["new_since_baseline"] = (sig not in self.known) if ready else None
         metrics["baseline"] = {"ready": ready, "window_s": round(self.window_s)}

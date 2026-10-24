@@ -55,3 +55,14 @@ def test_snapshot_tolerates_victims_without_behavior_fields():
     proc = snap["processes"][0]
     assert proc["parent"] is None and proc["net"] is None and proc["io"] is None
     assert proc["new_since_baseline"] is None
+
+
+def test_job_runner_children_never_become_baseline():
+    """A workload started through the exposed job runner while the baseline is
+    learning (e.g. right after a redeploy) must not be learned as normal."""
+    baseline = monitor_mod.Baseline(window_s=60, started_at=1000.0)
+    job = _p(30, "python", ["python", "/app/jobs/sync.py"], managed=True)
+    baseline.annotate({"processes": [dict(job)]}, now=1010.0)
+    later = {"processes": [dict(job)]}
+    baseline.annotate(later, now=1070.0)
+    assert later["processes"][0]["new_since_baseline"] is True

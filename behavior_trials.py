@@ -49,6 +49,17 @@ def proposals_for(state: dict, pid: int) -> list[dict]:
             if (p.get("target") or {}).get("type") == "process" and p["target"].get("value") == str(pid)]
 
 
+def wait_for_baseline(centinela: str) -> None:
+    """Trials are meaningless while Centinela is still learning (e.g. right after a deploy)."""
+    deadline = time.time() + 300
+    while time.time() < deadline:
+        procs = call(f"{centinela}/api/state")[1].get("processes", [])
+        if procs and all(p.get("new_since_baseline") is not None for p in procs):
+            return
+        time.sleep(5)
+    raise SystemExit("Centinela baseline never became ready (is the new monitor deployed?)")
+
+
 def trial(args, job: str) -> dict:
     pid = start_job(args.victim, job)
     started = time.time()
@@ -59,12 +70,16 @@ def trial(args, job: str) -> dict:
         if any(p["action"] == "kill_process" for p in found):
             break
     kill = next((p for p in found if p["action"] == "kill_process"), None)
-    call(f"{args.victim}/kill", {"pid": pid}, args.token)  # no-op (404) if Centinela already killed it
+    proc = next((p for p in call(f"{args.centinela}/api/state")[1].get("processes", []) if p["pid"] == pid), {})
+    status, body = call(f"{args.victim}/kill", {"pid": pid}, args.token)  # 404 if Centinela already killed it
+    if status not in (200, 404):
+        raise SystemExit(f"cannot stop job {pid}: {status} {body} (wrong EXECUTOR_TOKEN?)")
     return {
         "job": job, "pid": pid, "kill_proposed": kill is not None,
         "pass": (kill is not None) == EXPECT_KILL[job],
         "detection_s": round(kill["created_at"] - started, 1) if kill else None,
         "confidence": kill["confidence"] if kill else None,
+        "new_since_baseline": proc.get("new_since_baseline"),
         "evidence": kill["evidence"] if kill else [],
         "rationale": kill["rationale"] if kill else "",
     }
@@ -83,6 +98,7 @@ def main() -> None:
         raise SystemExit("set EXECUTOR_TOKEN (or --token) to stop jobs the AI leaves alone")
     args.victim, args.centinela = args.victim.rstrip("/"), args.centinela.rstrip("/")
 
+    wait_for_baseline(args.centinela)
     results = []
     for job in ("sync", "backup"):
         for n in range(1, args.runs + 1):
