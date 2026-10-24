@@ -1,0 +1,341 @@
+<!doctype html>
+<html lang="es">
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<title>Centinela · Panel de cliente</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Urbanist:wght@300..800&family=JetBrains+Mono:wght@400;700&display=swap">
+<style>
+:root{
+  --bg:#111010; --panel:#1a1919; --line:#2c2a2a; --fg:#f2f2f2; --muted:#a3a0a0;
+  --yellow:#ffdd00; --magenta:#e53aa3; --blue:#4c9eff;
+  --display:"Urbanist",system-ui,sans-serif;
+  --mono:"JetBrains Mono",ui-monospace,Consolas,monospace;
+  color-scheme:dark;
+}
+*{box-sizing:border-box}
+body{background:var(--bg);color:var(--fg);font-family:var(--display);font-size:16px;line-height:1.5;margin:0}
+:focus-visible{outline:2px solid var(--yellow);outline-offset:3px}
+h1,h2,h3,p{margin:0}
+h1{font-size:22px;font-weight:600}
+h2{font-size:18px;font-weight:600}
+.mono{font-family:var(--mono)}
+.muted{color:var(--muted)}
+.shell{display:flex;flex-wrap:wrap;min-height:100vh}
+.side{flex:1 1 240px;max-width:100%;background:var(--panel);border-right:1px solid var(--line);padding:20px 16px;display:flex;flex-direction:column;gap:24px}
+@media (min-width:900px){.side{max-width:260px;position:sticky;top:0;align-self:flex-start;height:100vh}}
+.brand{display:flex;flex-direction:column;gap:2px}
+.brand b{font-size:20px;letter-spacing:.5px}
+.brand span{font-size:14px;color:var(--muted)}
+.mark{display:inline-grid;grid-template-columns:8px 8px;gap:2px;margin-right:8px;vertical-align:middle}
+.mark i{width:8px;height:8px;background:var(--yellow);display:block}
+.mark i:nth-child(2){background:var(--magenta)}
+nav ul{list-style:none;margin:0;padding:0;display:flex;flex-direction:column;gap:4px}
+nav a{display:flex;align-items:center;gap:10px;min-height:44px;padding:0 12px;color:var(--muted);text-decoration:none;border-radius:6px;font-weight:500}
+nav a:hover{color:var(--fg);background:#232121}
+nav a[aria-current="true"]{color:var(--fg);background:#2a2828;box-shadow:inset 3px 0 var(--yellow)}
+nav svg,.ico{width:18px;height:18px;flex:none;fill:none;stroke:currentColor;stroke-width:1.8;stroke-linecap:round;stroke-linejoin:round}
+@media (max-width:899px){nav ul{flex-direction:row;flex-wrap:wrap}}
+.content{flex:999 1 560px;min-width:0;padding:20px max(16px,env(safe-area-inset-right,0px)) 48px max(16px,env(safe-area-inset-left,0px));display:flex;flex-direction:column;gap:20px}
+.top{display:flex;flex-wrap:wrap;gap:12px;align-items:center;justify-content:space-between}
+.pillst{display:inline-flex;align-items:center;gap:8px;min-height:44px;padding:0 16px;border:1px solid var(--line);border-radius:999px;font-family:var(--mono);font-size:13px}
+.dot{width:10px;height:10px;border-radius:50%;background:var(--yellow)}
+.pillst.bad .dot{background:var(--magenta)}
+.banner{display:flex;gap:14px;align-items:center;padding:18px 20px;border:1px solid var(--line);border-left:4px solid var(--yellow);background:var(--panel);border-radius:6px}
+.banner.threat{border-left-color:var(--magenta)}
+.banner.human{border-left-color:var(--blue)}
+.banner .ico{width:28px;height:28px;color:var(--yellow)}
+.banner.threat .ico{color:var(--magenta)}
+.banner.human .ico{color:var(--blue)}
+.banner h2{font-size:20px}
+.kpis{display:grid;grid-template-columns:repeat(auto-fit,minmax(200px,1fr));gap:12px}
+.card{background:var(--panel);border:1px solid var(--line);border-radius:6px;padding:16px;min-width:0}
+.kpi .v{font-family:var(--mono);font-size:30px;font-weight:700;line-height:1.2;overflow-wrap:anywhere}
+.kpi .l{color:var(--muted);font-size:14px}
+.kpi .n{color:var(--muted);font-size:13px;margin-top:4px}
+.grid2{display:grid;grid-template-columns:repeat(auto-fit,minmax(min(100%,420px),1fr));gap:12px}
+section{scroll-margin-top:16px}
+section>h2{margin-bottom:10px}
+.tw{overflow-x:auto}
+table{width:100%;border-collapse:collapse;font-size:14px}
+th,td{text-align:left;padding:10px 12px;border-bottom:1px solid var(--line);white-space:nowrap}
+td.wrap{white-space:normal;min-width:220px}
+th{color:var(--muted);font-weight:500;font-size:13px}
+td.m{font-family:var(--mono)}
+.badge{display:inline-block;padding:2px 10px;border-radius:999px;font-family:var(--mono);font-size:12px;border:1px solid currentColor;white-space:nowrap}
+.b-auto{color:var(--yellow)}.b-human{color:var(--blue)}.b-bad{color:var(--magenta)}.b-neutral{color:var(--muted)}
+.spark{width:100%;height:80px;display:block}
+.spark polyline{fill:none;stroke:var(--yellow);stroke-width:2}
+.spark.hot polyline{stroke:var(--magenta)}
+.spark line{stroke:var(--line)}
+.rat{white-space:pre-wrap;overflow-wrap:anywhere}
+.kv{display:grid;grid-template-columns:auto 1fr;gap:4px 12px;font-size:14px;margin-top:10px}
+.kv dt{color:var(--muted)}.kv dd{margin:0;font-family:var(--mono);overflow-wrap:anywhere}
+.empty{color:var(--muted);padding:12px 0}
+ul.log{list-style:none;margin:10px 0 0;padding:0;font-family:var(--mono);font-size:13px;display:flex;flex-direction:column;gap:6px}
+.note{font-size:14px;color:var(--muted);margin-top:10px}
+</style>
+<body>
+<div class="shell">
+  <aside class="side">
+    <div class="brand"><b><span class="mark" aria-hidden="true"><i></i><i></i><i></i><i></i></span>Centinela</b><span>Respuesta a incidentes</span></div>
+    <nav aria-label="Secciones">
+      <ul id="nav"></ul>
+    </nav>
+  </aside>
+  <main class="content">
+    <div class="top">
+      <div><h1>Resumen</h1><p class="muted mono" id="host">Servidor: sin datos</p></div>
+      <div class="pillst" id="live" role="status"><span class="dot" aria-hidden="true"></span><span id="liveText">Conectando</span></div>
+    </div>
+    <div class="banner" id="banner" role="status">
+      <svg class="ico" id="bannerIco" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3l8 3v6c0 5-3.5 8-8 9-4.5-1-8-4-8-9V6z"/><path d="M8.5 12l2.5 2.5L15.5 10"/></svg>
+      <div><h2 id="bannerTitle">Cargando</h2><p class="muted" id="bannerText"></p></div>
+    </div>
+    <div class="kpis" id="kpis"></div>
+
+    <section id="servidores" aria-labelledby="h-srv">
+      <h2 id="h-srv">Servidores</h2>
+      <div class="grid2">
+        <div class="card">
+          <h3>CPU del servidor</h3>
+          <p class="kpi"><span class="v" id="cpuNow">sin datos</span></p>
+          <svg class="spark" id="spark" viewBox="0 0 300 80" preserveAspectRatio="none" role="img" aria-label="CPU de las últimas lecturas"></svg>
+          <p class="note">Memoria: sin datos (el estado actual no la expone).</p>
+        </div>
+        <div class="card">
+          <h3>Procesos</h3>
+          <div class="tw" id="procs"></div>
+        </div>
+      </div>
+    </section>
+
+    <section id="analisis" aria-labelledby="h-ai">
+      <h2 id="h-ai">Análisis de la IA</h2>
+      <div class="grid2">
+        <div class="card" id="ai"></div>
+        <div class="card"><h3>Decisiones recientes</h3><ul class="log" id="decLog"></ul></div>
+      </div>
+    </section>
+
+    <section id="incidentes" aria-labelledby="h-inc">
+      <h2 id="h-inc">Incidentes</h2>
+      <div class="card tw" id="incs"></div>
+    </section>
+
+    <section id="aprobaciones" aria-labelledby="h-apr">
+      <h2 id="h-apr">Aprobaciones</h2>
+      <div class="card"><div class="tw" id="apprs"></div>
+        <p class="note">Solo lectura. Las acciones de alto impacto se resuelven por la API con el token de aprobador (cabecera X-Approver-Token); esta página no guarda ese token.</p></div>
+    </section>
+
+    <section id="politica" aria-labelledby="h-pol">
+      <h2 id="h-pol">Política de respuesta</h2>
+      <div class="card tw" id="policy"></div>
+    </section>
+
+    <section id="auditoria" aria-labelledby="h-aud">
+      <h2 id="h-aud">Registro de auditoría</h2>
+      <div class="card tw" id="audit"></div>
+    </section>
+  </main>
+</div>
+<script>
+(() => {
+  const $ = id => document.getElementById(id);
+  const SVGNS = 'http://www.w3.org/2000/svg';
+  const POLL_MS = 2000;
+  const NAV = [
+    ['resumen', 'Resumen', 'M3 11l9-8 9 8v9a1 1 0 0 1-1 1h-5v-6H9v6H4a1 1 0 0 1-1-1z'],
+    ['incidentes', 'Incidentes', 'M12 3l10 18H2z M12 10v5 M12 18h.01'],
+    ['aprobaciones', 'Aprobaciones', 'M5 12l5 5L20 7'],
+    ['servidores', 'Servidores', 'M3 4h18v6H3z M3 14h18v6H3z M7 7h.01 M7 17h.01'],
+    ['politica', 'Política de respuesta', 'M12 3l8 3v6c0 5-3.5 8-8 9-4.5-1-8-4-8-9V6z'],
+    ['auditoria', 'Registro de auditoría', 'M6 3h9l4 4v14H6z M9 12h7 M9 16h7'],
+  ];
+  // Mirrors MENU in centinela_svc/domain.py (lane comes from code, never from the model).
+  const MENU = [
+    ['kill_process', 'Terminar un proceso del ejecutor de trabajos', 'auto'],
+    ['revoke_key', 'Revocar una clave de API', 'auto'],
+    ['block_ip', 'Bloquear una IP', 'auto'],
+    ['close_sessions', 'Cerrar las sesiones de un usuario', 'auto'],
+    ['suspend_user', 'Suspender un usuario', 'approval'],
+  ];
+  const LANE = {
+    auto: ['automático', 'b-auto'], approval: ['aprobación humana', 'b-human'],
+    rejected: ['rechazado', 'b-bad'], failed: ['falló', 'b-bad'],
+    recommend: ['solo recomendación', 'b-neutral'],
+  };
+
+  function el(tag, text, cls) {
+    const e = document.createElement(tag);
+    if (text != null) e.textContent = text;
+    if (cls) e.className = cls;
+    return e;
+  }
+  function badge(key) { const [t, c] = LANE[key]; return el('span', t, 'badge ' + c); }
+  function clear(node) { node.replaceChildren(); return node; }
+  const time = ts => ts ? new Date(ts * 1000).toLocaleTimeString() : 'sin datos';
+  const secs = v => v == null ? 'sin datos' : v + ' s';
+
+  function table(heads, rows, emptyText) {
+    if (!rows.length) return el('p', emptyText, 'empty');
+    const t = el('table'), tr = el('tr');
+    heads.forEach(h => { const th = el('th', h); th.scope = 'col'; tr.appendChild(th); });
+    t.appendChild(el('thead')).appendChild(tr);
+    const tb = el('tbody');
+    rows.forEach(cells => {
+      const r = el('tr');
+      cells.forEach(c => {
+        const td = el('td');
+        if (c instanceof Node) td.appendChild(c); else { td.textContent = c ?? 'sin datos'; td.className = 'm'; }
+        r.appendChild(td);
+      });
+      tb.appendChild(r);
+    });
+    t.appendChild(tb);
+    return t;
+  }
+  function svgIcon(d) {
+    const s = document.createElementNS(SVGNS, 'svg');
+    s.setAttribute('viewBox', '0 0 24 24'); s.setAttribute('class', 'ico'); s.setAttribute('aria-hidden', 'true');
+    const p = document.createElementNS(SVGNS, 'path'); p.setAttribute('d', d); s.appendChild(p);
+    return s;
+  }
+
+  // Lane of a decision: approval lane if a human resolved it (audit "approval" entry) or it waits for one.
+  function laneOf(dec, approvedIds) {
+    if (dec.status === 'rejected') return 'rejected';
+    if (dec.status === 'failed') return 'failed';
+    if (dec.status === 'recommended') return 'recommend';
+    if (dec.status === 'pending_approval' || approvedIds.has(dec.proposal_id)) return 'approval';
+    return 'auto';
+  }
+
+  function buildNav() {
+    const ul = $('nav');
+    NAV.forEach(([id, label, path], i) => {
+      const li = el('li'), a = el('a');
+      a.href = id === 'resumen' ? '#' : '#' + id;
+      a.appendChild(svgIcon(path)); a.appendChild(document.createTextNode(label));
+      if (i === 0) a.setAttribute('aria-current', 'true');
+      a.addEventListener('click', () => ul.querySelectorAll('a').forEach(x =>
+        x === a ? x.setAttribute('aria-current', 'true') : x.removeAttribute('aria-current')));
+      li.appendChild(a); ul.appendChild(li);
+    });
+  }
+
+  function renderPolicy() {
+    const rows = MENU.map(([a, d, lane]) => [d, a, badge(lane)]);
+    rows.push(['Cualquier otra acción', 'fuera del menú', badge('recommend')]);
+    const t = table(['Acción', 'Identificador', 'Carril'], rows, '');
+    clear($('policy')).appendChild(t);
+    $('policy').appendChild(el('p', 'Una confianza baja del modelo solo puede endurecer un carril automático a aprobación humana. Las redes protegidas, los administradores y los procesos no gestionados nunca se tocan.', 'note'));
+  }
+
+  function render(s) {
+    const decisions = s.decisions || [], proposals = s.proposals || [], audit = s.audit || [];
+    const incidents = s.incidents || [], approvals = s.approvals || [], samples = s.samples || [];
+    const byId = new Map(proposals.map(p => [p.id, p]));
+    const approvedIds = new Set(audit.filter(e => e.kind === 'approval' && e.data).map(e => e.data.proposal_id));
+
+    // top bar
+    let host = null;
+    try { host = new URL(s.victim_url).host; } catch (e) { /* no url */ }
+    $('host').textContent = 'Servidor: ' + (host || 'sin datos');
+    const bad = !!s.last_error;
+    $('live').classList.toggle('bad', bad);
+    $('liveText').textContent = (bad ? 'Sin lectura' : 'Vigilando') + ' · ' + time(s.now);
+
+    // banner
+    const lastInc = incidents[0];
+    const unconfirmed = lastInc && lastInc.gone_confirmed_at == null;
+    let kind = '', title = 'Todo en orden', text = 'No hay amenazas activas.', icon = NAV[4][2];
+    if (bad) { kind = 'threat'; title = 'Sin lectura del servidor'; text = s.last_error; icon = NAV[1][2]; }
+    else if (approvals.length) { kind = 'human'; title = approvals.length + ' acción(es) esperan aprobación humana'; text = 'Centinela no actuará hasta que una persona decida.'; icon = NAV[2][2]; }
+    else if (unconfirmed) { kind = 'threat'; title = 'Amenaza contenida, confirmando'; text = 'Se terminó el proceso ' + (lastInc.name || lastInc.pid) + '; esperando que desaparezca.'; icon = NAV[1][2]; }
+    $('banner').className = 'banner ' + kind;
+    $('bannerTitle').textContent = title; $('bannerText').textContent = text;
+    const bi = clear($('bannerIco')), bp = document.createElementNS(SVGNS, 'path');
+    bp.setAttribute('d', icon); bi.appendChild(bp);
+
+    // KPIs
+    const rejected = decisions.filter(d => d.status === 'rejected').length;
+    const kpis = [
+      ['Tiempo de contención', lastInc ? secs(lastInc.confirmed_s ?? lastInc.containment_s) : 'sin datos', lastInc ? 'del último incidente' : 'sin incidentes aún'],
+      ['Incidentes contenidos', String(incidents.length), 'desde el arranque del servicio'],
+      ['Propuestas rechazadas', String(rejected), 'entre las últimas ' + decisions.length + ' decisiones'],
+      ['Aprobaciones pendientes', String(approvals.length), approvals.length ? 'requieren una persona' : 'nada pendiente'],
+    ];
+    const k = clear($('kpis'));
+    kpis.forEach(([l, v, n]) => { const c = el('div', null, 'card kpi'); c.append(el('div', l, 'l'), el('div', v, 'v'), el('div', n, 'n')); k.appendChild(c); });
+
+    // server activity
+    $('cpuNow').textContent = s.host_cpu != null ? Math.round(s.host_cpu) + '%' : 'sin datos';
+    const sp = clear($('spark')), pts = samples.slice(-60), n = pts.length;
+    sp.classList.toggle('hot', n > 0 && (pts[n - 1].cpu || 0) > 60);
+    if (n > 1) {
+      const line = document.createElementNS(SVGNS, 'polyline');
+      line.setAttribute('vector-effect', 'non-scaling-stroke');
+      line.setAttribute('points', pts.map((p, i) => (i * 300 / (n - 1)).toFixed(1) + ',' + (78 - Math.min(Math.max(p.cpu || 0, 0), 100) * 0.76).toFixed(1)).join(' '));
+      sp.appendChild(line);
+    }
+    const procs = (s.processes || []).slice(0, 8).map(p => [
+      String(p.pid), p.name, p.cpu_percent != null ? p.cpu_percent.toFixed(1) + '%' : 'sin datos',
+      p.managed ? el('span', 'gestionado', 'badge b-auto') : el('span', 'protegido', 'badge b-neutral')]);
+    clear($('procs')).appendChild(table(['PID', 'Proceso', 'CPU', 'Estado'], procs, 'Sin procesos visibles.'));
+
+    // AI analysis
+    const p = proposals[0], d = decisions[0], ai = clear($('ai'));
+    ai.appendChild(el('h3', 'Última propuesta'));
+    if (!p) ai.appendChild(el('p', 'Sin propuestas todavía.', 'empty'));
+    else {
+      ai.appendChild(el('p', p.rationale || 'sin datos', 'rat'));
+      const dl = el('dl', null, 'kv');
+      const act = p.discarded ? 'descartada (' + p.error + ')' : (!p.action || p.action === 'none') ? 'ninguna' : p.action + (p.target ? ' → ' + p.target.value : '');
+      [['Acción', act], ['Confianza', p.confidence], ['Fuente', p.source], ['Latencia del modelo', secs(p.latency_s)],
+       ['Decisión del ejecutor', d ? d.status + (d.layer ? ' (capa ' + d.layer + ')' : '') + ': ' + d.reason : 'sin datos']]
+        .forEach(([a, b]) => { dl.append(el('dt', a), el('dd', b ?? 'sin datos')); });
+      ai.appendChild(dl);
+    }
+    const dl = clear($('decLog'));
+    if (!decisions.length) dl.appendChild(el('li', 'Sin decisiones todavía.', 'muted'));
+    decisions.slice(0, 8).forEach(x => {
+      const li = el('li'), pr = byId.get(x.proposal_id);
+      li.appendChild(badge(laneOf(x, approvedIds)));
+      li.appendChild(document.createTextNode(' ' + time(x.at) + ' ' + (pr && pr.action ? pr.action + ': ' : '') + x.status));
+      dl.appendChild(li);
+    });
+
+    // incidents: every decision that acted, was refused or waits for a human
+    const incRows = decisions.filter(x => x.status !== 'noop').map(x => {
+      const pr = byId.get(x.proposal_id), inc = incidents.find(i => x.target && String(i.pid) === String(x.target.value) && x.status === 'executed');
+      return [time(x.at), (pr && pr.action) || 'sin datos', x.target ? x.target.value : 'sin datos',
+              badge(laneOf(x, approvedIds)), inc ? secs(inc.confirmed_s ?? inc.containment_s) : 'sin datos'];
+    });
+    clear($('incs')).appendChild(table(['Hora', 'Acción', 'Objetivo', 'Carril', 'Contención'], incRows, 'Sin incidentes: Centinela no ha tenido que actuar.'));
+
+    // approvals (read-only)
+    const apRows = approvals.map(a => [String(a.id), a.action, a.target ? a.target.value : 'sin datos', a.confidence,
+      el('span', a.rationale || 'sin datos')]);
+    clear($('apprs')).appendChild(table(['ID', 'Acción', 'Objetivo', 'Confianza', 'Motivo'], apRows, 'Nada pendiente de aprobación.'));
+    $('apprs').querySelectorAll('td:last-child').forEach(td => td.classList.add('wrap'));
+
+    // audit log
+    const auRows = audit.slice(0, 15).map(e => [String(e.seq), time(e.ts), e.kind, (e.prev_sha256 || '').slice(0, 8)]);
+    clear($('audit')).appendChild(table(['#', 'Hora', 'Tipo', 'Hash previo'], auRows, 'Sin entradas de auditoría.'));
+  }
+
+  async function poll() {
+    try {
+      const r = await fetch('/api/state');
+      if (!r.ok) throw new Error('HTTP ' + r.status);
+      render(await r.json());
+    } catch (e) {
+      $('live').classList.add('bad');
+      $('liveText').textContent = 'Sin conexión con Centinela';
+    }
+  }
+  buildNav(); renderPolicy(); poll(); setInterval(poll, POLL_MS);
+})();
+</script>

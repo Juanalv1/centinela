@@ -38,6 +38,7 @@ PANEL = (_HERE / "panel.html").read_text(encoding="utf-8")
 _legacy_path = _HERE / "panel_legacy.html"
 LEGACY_PANEL = _legacy_path.read_text(encoding="utf-8") if _legacy_path.exists() else PANEL
 PORTAL = (_HERE / "portal.html").read_text(encoding="utf-8")
+DASHBOARD = (_HERE / "dashboard.html").read_text(encoding="utf-8")
 monitor: Monitor | None = None
 audience = AudienceState()  # in-memory; one process serves the live demo
 
@@ -91,6 +92,12 @@ def join() -> str:
 def legacy_panel() -> str:
     """Raw technical panel (process table, audit log); kept for debugging."""
     return LEGACY_PANEL
+
+
+@app.get("/dashboard", response_class=HTMLResponse)
+def dashboard() -> str:
+    """Client-facing security dashboard; reads /api/state on the same origin."""
+    return DASHBOARD
 
 
 @app.get("/api/state")
