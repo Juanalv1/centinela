@@ -32,7 +32,10 @@ EXECUTOR_DATABASE_URL = os.environ.get("EXECUTOR_DATABASE_URL")  # least-privile
 OFFICE_CIDR = os.environ.get("OFFICE_CIDR", "203.0.113.0/24")  # never blocked
 APPROVER_TOKEN = os.environ.get("APPROVER_TOKEN", "")  # when set, required to resolve approvals
 
-PANEL = (Path(__file__).resolve().parent / "panel.html").read_text(encoding="utf-8")
+_HERE = Path(__file__).resolve().parent
+PANEL = (_HERE / "panel.html").read_text(encoding="utf-8")
+_legacy_path = _HERE / "panel_legacy.html"
+LEGACY_PANEL = _legacy_path.read_text(encoding="utf-8") if _legacy_path.exists() else PANEL
 monitor: Monitor | None = None
 
 
@@ -67,9 +70,29 @@ def panel() -> str:
     return PANEL
 
 
+@app.get("/legacy", response_class=HTMLResponse)
+def legacy_panel() -> str:
+    """Raw technical panel (process table, audit log); kept for debugging."""
+    return LEGACY_PANEL
+
+
 @app.get("/api/state")
 def state() -> dict:
     return monitor.state()
+
+
+@app.post("/api/attack")
+async def attack():
+    """Trigger the real CPU-burning job on the victim, same effect as attack.py.
+
+    The panel is same-origin with this API, so the browser never talks to the
+    victim directly; we proxy server-side using the known VICTIM_URL.
+    """
+    try:
+        resp = await monitor.http.post(f"{VICTIM_URL}/jobs", json={"job": "report"}, timeout=15)
+        return JSONResponse(resp.json(), status_code=resp.status_code)
+    except Exception as exc:  # network / victim down
+        return JSONResponse({"error": f"{type(exc).__name__}: {exc}"}, status_code=502)
 
 
 @app.post("/api/simulate-compromised")
