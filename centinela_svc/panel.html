@@ -1,3 +1,7 @@
+<!doctype html>
+<html lang="es">
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
 <title>Centinela</title>
 <meta name="claude:viewport-fit-sides" content="cover">
 <link rel="preconnect" href="https://fonts.googleapis.com">
@@ -30,6 +34,7 @@ header{position:sticky;top:env(safe-area-inset-top,0px);z-index:5;background:col
 .nav ul a{font-family:var(--mono);font-size:13px;letter-spacing:1.5px;text-transform:uppercase;text-decoration:none;color:var(--muted)}
 .nav ul a:hover{color:var(--fg)}
 @media (max-width:720px){.nav ul{display:none}}
+@media (max-width:520px){.race{grid-template-columns:1fr;gap:6px}.bar.c{min-width:0}.big{font-size:36px}.qr{width:100%;max-width:200px;height:auto;aspect-ratio:1}}
 
 .pill{display:flex;justify-content:center;padding-block:8px 0}
 .pill div{display:flex;border:1px solid var(--line);border-radius:999px;padding:5px;gap:4px;flex-wrap:wrap;justify-content:center}
@@ -247,10 +252,16 @@ footer{border-top:1px solid var(--line);padding-block:32px;font-family:var(--mon
         <div class="phone">
           <div class="notch" aria-hidden="true"></div>
           <p class="tag" style="color:var(--yellow)">Hola, @tú</p>
-          <button type="button" data-scn="miner">⛏ Lanzar minero</button>
-          <button type="button" data-scn="brute">🔑 Fuerza bruta</button>
-          <button type="button" data-scn="inject">✉ Inyectar texto en logs</button>
-          <p class="res" id="phoneRes">Toca un ataque para empezar.</p>
+          <div id="phoneMenu">
+            <button type="button" data-scn="miner">⛏ Lanzar minero</button>
+            <button type="button" data-scn="brute">🔑 Fuerza bruta</button>
+            <button type="button" data-scn="inject">✉ Inyectar texto en logs</button>
+            <p class="res" id="phoneHint">Toca un ataque para empezar.</p>
+          </div>
+          <div id="phoneResult" hidden>
+            <p class="res" id="phoneRes"></p>
+            <button type="button" id="phoneBack">← Volver</button>
+          </div>
         </div>
       </div>
       <div>
@@ -467,10 +478,12 @@ footer{border-top:1px solid var(--line);padding-block:32px;font-family:var(--mon
   tick(); setInterval(tick,2600);
 
   const msgs={miner:'Minero lanzado. Mira la pantalla…',brute:'Atacando el login… mira la pantalla.',inject:'Texto inyectado. ¿Caerá la IA?'};
+  function showMenu(){ $('phoneResult').hidden=true; $('phoneMenu').hidden=false; }
   document.querySelectorAll('.phone [data-scn]').forEach(b=>b.addEventListener('click',()=>{
     $('phoneRes').textContent=msgs[b.dataset.scn];
+    $('phoneMenu').hidden=true; $('phoneResult').hidden=false;
     feed('@tú '+b.textContent.slice(2).toLowerCase(),'m');
-    document.getElementById('demo').scrollIntoView({behavior:'smooth',block:'start'});
   }));
+  $('phoneBack').addEventListener('click',showMenu);
 })();
 </script>
