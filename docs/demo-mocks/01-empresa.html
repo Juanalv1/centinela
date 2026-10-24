@@ -1,0 +1,264 @@
+<!doctype html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Centinela: Tú eres la empresa</title>
+<meta name="claude:viewport-fit-sides" content="cover">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Archivo:wght@600;800&family=Public+Sans:wght@400;600&family=JetBrains+Mono:wght@400;600&display=swap">
+<style>
+/* Layout: header, then a stage with a phone (audience) beside the big screen, then the 3-minute script. */
+:root {
+  --bg: #eef1f5; --surface: #ffffff; --ink: #17202c; --muted: #5b6676; --line: #d5dbe4;
+  --accent: #2346c9; --ok: #17803d; --ok-soft: #dcf2e3; --bad: #c42b2b; --bad-soft: #f9dede;
+  --idle: #c3cad5; --screen: #101722; --screen-ink: #dbe3ee; --screen-muted: #8794a8; --screen-line: #263243;
+  --f-display: "Archivo", "Helvetica Neue", Arial, sans-serif;
+  --f-body: "Public Sans", "Segoe UI", system-ui, sans-serif;
+  --f-mono: "JetBrains Mono", Consolas, monospace;
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --bg: #0f141b; --surface: #171e28; --ink: #e4e9f0; --muted: #98a3b4; --line: #2a3442;
+    --accent: #7d98ff; --ok: #4cc77a; --ok-soft: #12301f; --bad: #ff6b6b; --bad-soft: #3c1a1a;
+    --idle: #3a4556; --screen: #080c12; --screen-line: #222d3c; color-scheme: dark;
+  }
+}
+:root[data-theme="dark"] {
+  --bg: #0f141b; --surface: #171e28; --ink: #e4e9f0; --muted: #98a3b4; --line: #2a3442;
+  --accent: #7d98ff; --ok: #4cc77a; --ok-soft: #12301f; --bad: #ff6b6b; --bad-soft: #3c1a1a;
+  --idle: #3a4556; --screen: #080c12; --screen-line: #222d3c; color-scheme: dark;
+}
+* { box-sizing: border-box; }
+body {
+  background: var(--bg); color: var(--ink); font: 15px/1.5 var(--f-body);
+  padding-left: max(16px, env(safe-area-inset-left, 0px)); padding-right: max(16px, env(safe-area-inset-right, 0px));
+  padding-block: 24px 40px;
+}
+.wrap { max-width: 1100px; margin: 0 auto; display: grid; gap: 20px; }
+.eyebrow { font: 600 12px var(--f-mono); letter-spacing: .08em; text-transform: uppercase; color: var(--muted); }
+h1 { font: 800 clamp(26px, 4vw, 36px)/1.15 var(--f-display); margin: 4px 0 6px; text-wrap: balance; }
+h3 { font: 600 13px var(--f-display); letter-spacing: .06em; text-transform: uppercase; color: var(--muted); margin: 0 0 8px; }
+p { margin: 0; max-width: 70ch; }
+.muted { color: var(--muted); }
+.controls { display: flex; flex-wrap: wrap; gap: 8px; }
+button {
+  font: 600 14px var(--f-body); padding: 9px 14px; border-radius: 8px; cursor: pointer;
+  border: 1px solid var(--line); background: var(--surface); color: var(--ink);
+}
+button.primary { background: var(--accent); border-color: var(--accent); color: #fff; }
+button:disabled { opacity: .5; cursor: default; }
+button:focus-visible { outline: 3px solid var(--accent); outline-offset: 2px; }
+
+.stage { display: grid; grid-template-columns: 260px minmax(0, 1fr); gap: 18px; align-items: start; }
+@media (max-width: 800px) { .stage { grid-template-columns: minmax(0, 1fr); } .phone { margin: 0 auto; } }
+
+.phone { width: 260px; max-width: 100%; background: #1c2430; border-radius: 32px; padding: 12px; }
+.phone-screen { background: var(--surface); border-radius: 22px; min-height: 420px; padding: 18px 16px; display: grid; gap: 12px; align-content: start; }
+.phone-label { font: 600 11px var(--f-mono); color: var(--muted); text-align: center; letter-spacing: .06em; }
+.app-name { font: 800 18px var(--f-display); }
+.status { border-radius: 10px; padding: 12px; font-weight: 600; }
+.status.ok { background: var(--ok-soft); color: var(--ok); }
+.status.bad { background: var(--bad-soft); color: var(--bad); }
+.status.idle { background: var(--bg); color: var(--muted); }
+.menu-item { border: 1px solid var(--line); border-radius: 8px; padding: 9px 10px; font-size: 14px; }
+
+.screen { background: var(--screen); color: var(--screen-ink); border-radius: 14px; padding: 18px; display: grid; gap: 14px; min-width: 0; }
+.screen-top { display: flex; flex-wrap: wrap; justify-content: space-between; gap: 10px; align-items: baseline; }
+.screen-title { font: 800 18px var(--f-display); }
+.clock { font: 600 22px var(--f-mono); font-variant-numeric: tabular-nums; }
+.stats { display: flex; flex-wrap: wrap; gap: 18px; font: 13px var(--f-mono); color: var(--screen-muted); }
+.stats b { color: var(--screen-ink); font-size: 18px; display: block; font-variant-numeric: tabular-nums; }
+.grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(22px, 1fr)); gap: 6px; }
+.dot { aspect-ratio: 1; border-radius: 50%; background: var(--idle); transition: background .3s, transform .3s; }
+.dot.on { background: var(--ok); }
+.dot.sus { background: #e0a000; transform: scale(1.25); }
+.dot.cut { background: var(--bad); transform: scale(1.25); }
+.dot.blocked { background: #6b7280; }
+.feed { border-top: 1px solid var(--screen-line); padding-top: 10px; display: grid; gap: 8px; }
+.log { font: 12px/1.5 var(--f-mono); color: var(--screen-muted); height: 120px; overflow: auto; overflow-wrap: anywhere; }
+.log .hot { color: #f2b84b; }
+.card { border-radius: 10px; padding: 12px; font-size: 14px; border: 1px solid var(--screen-line); }
+.card.ai { border-color: #4a63c9; }
+.card.exec-ok { border-color: var(--ok); }
+.card.exec-bad { border-color: var(--bad); }
+.card .who { font: 600 11px var(--f-mono); letter-spacing: .06em; text-transform: uppercase; color: var(--screen-muted); margin-bottom: 4px; }
+
+.below { display: grid; grid-template-columns: repeat(auto-fit, minmax(260px, 1fr)); gap: 16px; }
+.panel { background: var(--surface); border: 1px solid var(--line); border-radius: 12px; padding: 16px; min-width: 0; }
+.panel ol, .panel ul { margin: 0; padding-left: 20px; display: grid; gap: 6px; }
+@media (prefers-reduced-motion: reduce) { .dot { transition: none; } }
+</style>
+
+<div class="wrap">
+  <header>
+    <div class="eyebrow">Mock de demo · propuesta 1 de 4 · todo simulado en el navegador</div>
+    <h1>Tú eres la empresa</h1>
+    <p class="muted">El público entra por QR como empleados de una PyME y usa la app normalmente. Entre ellos, alguien usa una clave filtrada. Centinela corta solo esa clave y nadie más pierde acceso.</p>
+  </header>
+
+  <div class="controls">
+    <button class="primary" id="run">Simular demo</button>
+    <button id="ratelimit" disabled>¿Y con un rate limit?</button>
+    <button id="reset">Reiniciar</button>
+  </div>
+
+  <section class="stage">
+    <div>
+      <div class="phone"><div class="phone-screen" id="phone">
+        <div class="app-name">Facturas Ávila C.A.</div>
+        <div class="status idle" id="pstatus">Escanea el QR para entrar</div>
+        <div class="menu-item">Mis facturas</div>
+        <div class="menu-item">Clientes</div>
+        <div class="menu-item">Nómina</div>
+        <div class="muted" id="pnote" style="font-size:13px">Vista de una persona del público.</div>
+      </div></div>
+      <div class="phone-label">CELULAR DEL PÚBLICO</div>
+    </div>
+
+    <div class="screen">
+      <div class="screen-top">
+        <div class="screen-title">Centinela · pantalla grande</div>
+        <div class="clock" id="clock">03:12:00</div>
+      </div>
+      <div class="stats">
+        <div><b id="sOnline">0</b>empleados conectados</div>
+        <div><b id="sCut">0</b>accesos cortados</div>
+        <div><b id="sTime">–</b>tiempo de contención</div>
+      </div>
+      <div class="grid" id="grid"></div>
+      <div class="feed">
+        <div class="log" id="log" aria-live="polite"></div>
+        <div class="card ai" id="ai" hidden><div class="who">IA propone</div><div id="aiText"></div></div>
+        <div class="card" id="exec" hidden><div class="who">Ejecutor decide</div><div id="execText"></div></div>
+      </div>
+    </div>
+  </section>
+
+  <section class="below">
+    <div class="panel">
+      <h3>Guion (3 min)</h3>
+      <ol>
+        <li>0:00–0:30. Problema: una PyME sin equipo de seguridad. A las 3 AM nadie vigila.</li>
+        <li>0:30–1:15. QR en pantalla: el público entra como empleados y la grilla se llena.</li>
+        <li>1:15–2:00. Una clave filtrada se usa desde un país nuevo. Centinela la revoca en segundos y los demás siguen dentro.</li>
+        <li>2:00–2:30. Botón «rate limit»: con la defensa clásica, todos quedan fuera.</li>
+        <li>2:30–3:00. Cierre: la IA piensa, el código actúa y el humano decide lo grave.</li>
+      </ol>
+    </div>
+    <div class="panel">
+      <h3>Qué demuestra</h3>
+      <ul>
+        <li>Precisión: distingue a 1 de 50. Responde la objeción del rate limit.</li>
+        <li>Cada persona del público ve en su celular que sigue dentro.</li>
+        <li>Liviano: solo peticiones HTTP, sin un proceso por persona.</li>
+      </ul>
+    </div>
+    <div class="panel">
+      <h3>Qué hay que construir</h3>
+      <ul>
+        <li>App víctima con sesiones y claves de API (caso 2, Christian).</li>
+        <li>Acción <code>revoke_key</code> con un rol de Postgres mínimo.</li>
+        <li>Razonador que lea los logs HTTP (Maikol).</li>
+        <li>Portal del QR y la grilla en vivo.</li>
+      </ul>
+    </div>
+  </section>
+</div>
+
+<script>
+const N = 48, ATTACKER = 31;
+const $ = (id) => document.getElementById(id);
+const names = ["ana", "luis", "maria", "jose", "carla", "pedro", "sofia", "diego"];
+const paths = ["/facturas", "/clientes", "/nomina", "/facturas/2026-09"];
+let timers = [], clockTimer = null, seconds = 0, online = 0;
+
+function later(ms, fn) { timers.push(setTimeout(fn, ms)); }
+function log(text, hot) {
+  const line = document.createElement("div");
+  if (hot) line.className = "hot";
+  line.textContent = text;
+  $("log").appendChild(line);
+  $("log").scrollTop = $("log").scrollHeight;
+}
+function setPhone(kind, text, note) {
+  $("pstatus").className = "status " + kind;
+  $("pstatus").textContent = text;
+  if (note) $("pnote").textContent = note;
+}
+function tick() {
+  seconds++;
+  const s = 12 * 60 + seconds;
+  $("clock").textContent = "03:" + String(Math.floor(s / 60) % 60).padStart(2, "0") + ":" + String(s % 60).padStart(2, "0");
+}
+function reset() {
+  timers.forEach(clearTimeout); timers = []; clearInterval(clockTimer);
+  seconds = 0; online = 0;
+  $("grid").innerHTML = "";
+  for (let i = 0; i < N; i++) { const d = document.createElement("div"); d.className = "dot"; $("grid").appendChild(d); }
+  $("log").innerHTML = ""; $("ai").hidden = true; $("exec").hidden = true;
+  $("sOnline").textContent = "0"; $("sCut").textContent = "0"; $("sTime").textContent = "–";
+  $("clock").textContent = "03:12:00";
+  $("run").disabled = false; $("ratelimit").disabled = true;
+  setPhone("idle", "Escanea el QR para entrar", "Vista de una persona del público.");
+}
+function dots() { return $("grid").children; }
+
+function run() {
+  reset();
+  $("run").disabled = true;
+  clockTimer = setInterval(tick, 1000);
+  setPhone("ok", "Hola, Ana · sesión activa", "Estás dentro como empleada de contabilidad.");
+  for (let i = 0; i < N; i++) {
+    if (i === ATTACKER) continue;
+    later(150 + i * 70, () => {
+      dots()[i].classList.add("on");
+      $("sOnline").textContent = ++online;
+      if (i % 4 === 0) log(`GET ${paths[i % 4]} 200 · ${names[i % 8]} · 190.6.${i}.12 (Caracas)`);
+    });
+  }
+  const t0 = 4200;
+  later(t0, () => {
+    dots()[ATTACKER].classList.add("on");
+    $("sOnline").textContent = ++online;
+    log("GET /clientes/export 200 · jperez · 45.83.12.7 (país nunca visto)", true);
+  });
+  later(t0 + 900, () => log("GET /clientes/export?page=2 200 · jperez · 45.83.12.7", true));
+  later(t0 + 1700, () => {
+    log("GET /nomina/export 200 · jperez · 45.83.12.7", true);
+    dots()[ATTACKER].className = "dot sus";
+  });
+  later(t0 + 3200, () => {
+    $("ai").hidden = false;
+    $("aiText").textContent = "revoke_key · clave de jperez. La clave se usa desde un país nunca visto y exporta clientes y nómina a las 3 AM, cosa que esta cuenta nunca hizo. Los otros 47 usuarios se comportan normal. Confianza: alta.";
+  });
+  later(t0 + 3700, () => {
+    $("exec").hidden = false; $("exec").className = "card exec-ok";
+    $("execText").textContent = "EJECUTADA · revoke_key está en el menú, el carril es automático y la clave no está protegida. Solo se cortó esa clave.";
+    dots()[ATTACKER].className = "dot cut";
+    $("sCut").textContent = "1"; $("sOnline").textContent = --online;
+    $("sTime").textContent = "3,7 s";
+    log("403 · jperez · clave revocada por Centinela", true);
+    setPhone("ok", "Tu sesión sigue activa ✓", "Centinela cortó a 1 de 48. Tú sigues trabajando.");
+    $("ratelimit").disabled = false;
+  });
+}
+
+function rateLimit() {
+  $("ratelimit").disabled = true;
+  [...dots()].forEach((d, i) => later(i * 25, () => { d.className = "dot blocked"; }));
+  later(N * 25, () => {
+    $("sOnline").textContent = "0"; $("sCut").textContent = N;
+    $("exec").className = "card exec-bad";
+    $("execText").textContent = "Comparación: un rate limit por volumen bloquea a toda la oficina. 48 de 48 personas quedan fuera para frenar a 1.";
+    log("429 Too Many Requests · todos los usuarios", true);
+    setPhone("bad", "429 · Demasiadas solicitudes", "Con un rate limit, tú también quedas fuera.");
+  });
+}
+
+$("run").addEventListener("click", run);
+$("reset").addEventListener("click", reset);
+$("ratelimit").addEventListener("click", rateLimit);
+reset();
+</script>
+
+</html>
