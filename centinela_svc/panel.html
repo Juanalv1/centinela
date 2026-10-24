@@ -82,6 +82,14 @@ section{padding-block:72px}
 .cell h4{margin:0;font-family:var(--mono);font-size:12px;letter-spacing:1.5px;text-transform:uppercase;color:var(--muted);font-weight:400;display:flex;justify-content:space-between}
 .logs{font-family:var(--mono);font-size:12px;line-height:1.55;height:170px;overflow:hidden;color:#8d8a8a;display:flex;flex-direction:column;justify-content:flex-end}
 .logs .bad{color:var(--magenta)}.logs .inj{color:var(--yellow)}
+.orb-box{display:flex;flex-direction:column;align-items:center;gap:10px;padding-block:6px 12px}
+.orb{width:132px;height:132px;border-radius:50%;padding:6px;background:#0b0b0b;box-shadow:0 0 0 1px var(--line),0 0 28px rgba(76,158,255,.18);transition:box-shadow .3s}
+.orb[data-state=talking]{box-shadow:0 0 0 1px var(--magenta),0 0 36px rgba(229,58,163,.35)}
+.orb canvas{width:100%;height:100%;border-radius:50%;display:block}
+.orb-states{display:flex;gap:6px;font-family:var(--mono);font-size:11px;letter-spacing:1px;text-transform:uppercase}
+.orb-states span,.orb-states button{border:1px solid var(--line);border-radius:6px;padding:3px 8px;color:var(--muted);background:none;font:inherit;letter-spacing:inherit}
+.orb-states span.on{color:var(--fg);border-color:var(--muted)}
+.orb-states button{cursor:pointer}.orb-states button[aria-pressed=true]{color:var(--yellow);border-color:var(--yellow)}
 .think{font-family:var(--mono);font-size:13px;line-height:1.5;color:var(--fg);border-top:1px dashed var(--line);padding-top:12px;flex:1;white-space:pre-wrap;overflow-wrap:anywhere}
 .cell.ai.pwned{background:repeating-linear-gradient(0deg,#2a0f1f 0 2px,#1a1919 2px 4px)}
 .cell.ai.pwned .think{color:var(--magenta)}
@@ -202,6 +210,10 @@ footer{border-top:1px solid var(--line);padding-block:32px;font-family:var(--mon
       <div class="grid3">
         <div class="cell ai" id="aiCell">
           <h4><span>01 · IA</span><span>piensa · sin llaves</span></h4>
+          <div class="orb-box">
+            <div class="orb" id="orb" data-state="idle"><canvas id="orbCanvas" width="240" height="240" aria-hidden="true"></canvas></div>
+            <div class="orb-states"><span data-s="idle" class="on">Idle</span><span data-s="listening">Analiza</span><span data-s="talking">Habla</span><button id="voiceBtn" aria-pressed="false">🔇 Voz</button></div>
+          </div>
           <div class="logs" id="logs" aria-live="off"></div>
           <div class="think" id="think" aria-live="polite">Esperando eventos…</div>
           <div class="wall" aria-hidden="true"></div>
@@ -315,6 +327,69 @@ footer{border-top:1px solid var(--line);padding-block:32px;font-family:var(--mon
 </main>
 
 <script>
+/* Agent orb: WebGL swirl driven by state (idle / listening / talking) + browser TTS (Web Speech API). */
+const Orb=(()=>{
+  const el=document.getElementById('orb'), cv=document.getElementById('orbCanvas'), gl=cv.getContext('webgl');
+  const o={busy:false,talking:false,level:0};
+  function state(){ return o.talking?'talking':o.busy?'listening':'idle'; }
+  function sync(){ const st=state(); el.dataset.state=st; document.querySelectorAll('.orb-states span').forEach(x=>x.classList.toggle('on',x.dataset.s===st)); }
+  if(!gl){ setInterval(sync,200); return o; }
+  const vs='attribute vec2 p;void main(){gl_Position=vec4(p,0.,1.);}';
+  const fs=`precision mediump float;uniform vec2 r;uniform float t,e,hot;
+  void main(){vec2 uv=(gl_FragCoord.xy*2.-r)/r.y;float d=length(uv);if(d>1.)discard;
+   float a=atan(uv.y,uv.x),sw=a*3.+t*(.4+e*2.)-d*(2.5+e*3.);
+   float w=.5+.5*sin(sw+sin(d*6.-t*(1.+e*4.))*(.6+e));
+   vec3 c1=mix(vec3(.30,.45,.85),vec3(.90,.23,.64),hot),c2=mix(vec3(.75,.85,1.),vec3(1.,.87,.0),hot*.6);
+   vec3 col=mix(c1*.35,c2,w)*(1.-smoothstep(.85,1.,d)*.6)+(1.-d)*.15*e;
+   gl_FragColor=vec4(col,1.);}`;
+  function sh(type,src){const x=gl.createShader(type);gl.shaderSource(x,src);gl.compileShader(x);return x;}
+  const pr=gl.createProgram(); gl.attachShader(pr,sh(gl.VERTEX_SHADER,vs)); gl.attachShader(pr,sh(gl.FRAGMENT_SHADER,fs)); gl.linkProgram(pr); gl.useProgram(pr);
+  gl.bindBuffer(gl.ARRAY_BUFFER,gl.createBuffer()); gl.bufferData(gl.ARRAY_BUFFER,new Float32Array([-1,-1,1,-1,-1,1,1,1]),gl.STATIC_DRAW);
+  const loc=gl.getAttribLocation(pr,'p'); gl.enableVertexAttribArray(loc); gl.vertexAttribPointer(loc,2,gl.FLOAT,false,0,0);
+  const U=n=>gl.getUniformLocation(pr,n), ur=U('r'),ut=U('t'),ue=U('e'),uh=U('hot');
+  let e=0,h=0;
+  (function frame(ms){
+    sync();
+    const target=o.talking?.55+.45*Math.abs(Math.sin(ms/90)):o.busy?.35:.08;
+    e+=(target-e)*.08; h+=((o.talking?1:0)-h)*.05;
+    gl.viewport(0,0,cv.width,cv.height); gl.uniform2f(ur,cv.width,cv.height); gl.uniform1f(ut,ms/1000); gl.uniform1f(ue,e); gl.uniform1f(uh,h);
+    gl.drawArrays(gl.TRIANGLE_STRIP,0,4); requestAnimationFrame(frame);
+  })(0);
+  return o;
+})();
+
+// TTS: browsers block speech until a user gesture, so the voice is opt-in via the button.
+let voiceOn=false, lastSpoken='';
+const voiceBtn=document.getElementById('voiceBtn');
+voiceBtn.onclick=()=>{
+  voiceOn=!voiceOn; voiceBtn.setAttribute('aria-pressed',voiceOn); voiceBtn.textContent=(voiceOn?'🔊':'🔇')+' Voz';
+  if(voiceOn) speak('Voz del agente activada.'); else stopVoice();
+};
+function speak(text){
+  if(!voiceOn || text===lastSpoken) return;
+  lastSpoken=text; stopVoice();
+  edgeVoice(text.slice(0,280)).catch(()=>browserVoice(text.slice(0,280)));
+}
+// Edge natural voice via the backend (/api/tts); browser speech is the offline fallback.
+let audioEl=null;
+function stopVoice(){ if(audioEl){ audioEl.pause(); audioEl=null; } if('speechSynthesis' in window) speechSynthesis.cancel(); Orb.talking=false; }
+async function edgeVoice(text){
+  const r=await fetch('/api/tts',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({text})});
+  if(!r.ok) throw new Error('tts '+r.status);
+  const url=URL.createObjectURL(await r.blob()), a=new Audio(url); audioEl=a;
+  a.onplay=()=>Orb.talking=true; a.onended=a.onerror=()=>{ Orb.talking=false; URL.revokeObjectURL(url); };
+  await a.play();
+}
+function browserVoice(text){
+  if(!('speechSynthesis' in window)) return;
+  const u=new SpeechSynthesisUtterance(text); u.lang='es-ES'; u.rate=1.05;
+  const vs=speechSynthesis.getVoices().filter(v=>v.lang.startsWith('es'));
+  const v=vs.find(v=>/natural/i.test(v.name))||vs[0]; if(v) u.voice=v;
+  u.onstart=()=>Orb.talking=true; u.onend=u.onerror=()=>Orb.talking=false;
+  speechSynthesis.speak(u);
+}
+</script>
+<script>
 /* Control room wired to the REAL backend (same-origin API).
    - "Minero"    -> POST /api/attack       (starts the real CPU job on the victim)
    - "Inyección" / "IA comprometida" -> POST /api/simulate-compromised (real DENY + layer)
@@ -374,6 +449,7 @@ footer{border-top:1px solid var(--line);padding-block:32px;font-family:var(--mon
   function renderProposal(p){
     if(!p) return;
     if(p.discarded){ proposal.innerHTML='<span class="k">propuesta:</span> descartada — '+esc(p.error); return; }
+    if(p.action && p.action!=='none') speak('Alerta. Ataque detectado. '+esc(p.rationale));
     if(!p.action || p.action==='none'){
       proposal.innerHTML='<span class="k">propuesta:</span> ninguna · sin amenazas';
       type(esc(p.rationale)); return;
@@ -391,6 +467,7 @@ footer{border-top:1px solid var(--line);padding-block:32px;font-family:var(--mon
     $('status').style.color='';
     if(s.last_error){ $('status').textContent='⚠ '+s.last_error; }
     else if(s.reasoner_busy){ $('status').textContent='IA analizando…'; }
+    Orb.busy=!!s.reasoner_busy;
     draw(s.samples||[]);
     const cpu=s.host_cpu; $('mVal').textContent = cpu!=null ? Math.round(cpu)+'%' : '—';
     $('mLabel').textContent='CPU';

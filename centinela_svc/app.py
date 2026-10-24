@@ -12,7 +12,7 @@ from pathlib import Path
 import httpx
 from fastapi import FastAPI, Header, Request
 from pydantic import BaseModel
-from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse
+from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse, Response
 from urllib.parse import urlencode, urlparse
 
 from audience import AudienceState, RateLimited, normalize_handle
@@ -34,6 +34,7 @@ AUDIT_DATABASE_URL = os.environ.get("AUDIT_DATABASE_URL")  # Postgres; falls bac
 EXECUTOR_DATABASE_URL = os.environ.get("EXECUTOR_DATABASE_URL")  # least-privilege role, case-2 actions
 OFFICE_CIDR = os.environ.get("OFFICE_CIDR", "203.0.113.0/24")  # never blocked
 APPROVER_TOKEN = os.environ.get("APPROVER_TOKEN", "")  # when set, required to resolve approvals
+TTS_VOICE = os.environ.get("TTS_VOICE", "es-MX-DaliaNeural")  # Edge neural voice
 
 # Google login (single shared demo org). Auth is "configured" only when all three
 # secrets are set; otherwise /dashboard stays open in demo mode (pitch fallback).
@@ -279,6 +280,27 @@ async def _forge_compromised() -> tuple[dict, int]:
     )
     decision = await monitor.submit(forged)
     return {"forged_proposal": forged.to_dict(), "decision": decision}, 200
+
+
+class SpeakIn(BaseModel):
+    text: str
+
+
+@app.post("/api/tts")
+async def tts(body: SpeakIn):
+    """Synthesize the agent's alert with Edge's natural (neural) voices; returns MP3."""
+    import edge_tts  # lazy: only the panel voice needs it
+    text = body.text.strip()[:400]
+    if not text:
+        return JSONResponse({"error": "empty text"}, status_code=400)
+    try:
+        audio = bytearray()
+        async for chunk in edge_tts.Communicate(text, TTS_VOICE).stream():
+            if chunk["type"] == "audio":
+                audio.extend(chunk["data"])
+    except Exception as exc:  # network / service down -> panel falls back to browser voice
+        return JSONResponse({"error": f"{type(exc).__name__}: {exc}"}, status_code=502)
+    return Response(bytes(audio), media_type="audio/mpeg")
 
 
 @app.post("/api/attack")
