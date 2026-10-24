@@ -19,6 +19,7 @@ def env(monkeypatch):
     monkeypatch.setenv("DEMO_LEAKED_KEY", LEAKED)
     monkeypatch.setenv("EXECUTOR_DB_PASSWORD", EXEC_PW)
     monkeypatch.setenv("OFFICE_CIDR", "203.0.113.0/24")
+    monkeypatch.setenv("TRUSTED_PROXY_HOPS", "1")
     mod = load_module("victim_app_case2", VICTIM / "app.py")
     with TestClient(mod.app) as client:
         yield client, dsn
@@ -111,3 +112,23 @@ def test_case1_still_works_without_database(monkeypatch):
     with TestClient(mod.app) as client:
         assert client.get("/health").json() == {"ok": True}
         assert client.get("/api/me").status_code == 503
+
+
+def test_spoofed_forwarded_for_cannot_dodge_the_blocklist(env, monkeypatch):
+    client, dsn = env
+    with psycopg.connect(executor_dsn(dsn), autocommit=True) as conn:
+        conn.execute("INSERT INTO ip_blocklist (ip, reason) VALUES ('198.51.100.7', 't')")
+    # One trusted proxy (Render) appends the real client ip as the right-most entry.
+    for xff in ("1.2.3.4, 198.51.100.7", "::ffff:198.51.100.7"):
+        r = client.get("/api/me", headers={"X-API-Key": LEAKED, "X-Forwarded-For": xff})
+        assert r.status_code == 403, xff
+
+
+def test_executor_cannot_read_session_tokens_or_block_mapped_or_ranges(env):
+    _, dsn = env
+    with psycopg.connect(executor_dsn(dsn), autocommit=True) as conn:
+        with pytest.raises(psycopg.errors.InsufficientPrivilege):
+            conn.execute("SELECT token_hash FROM sessions")
+        for ip in ("::ffff:203.0.113.10", "0.0.0.0/0", "203.0.0.0/16"):
+            with pytest.raises(psycopg.errors.InsufficientPrivilege, match="permission denied"):
+                conn.execute("INSERT INTO ip_blocklist (ip, reason) VALUES (%s, 't')", (ip,))

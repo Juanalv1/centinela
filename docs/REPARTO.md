@@ -22,6 +22,8 @@ Archivos: `centinela_svc/executor.py`, `centinela_svc/audit.py`, `victim/**`, `r
 4. ✅ **Credencial mínima:** rol `centinela_executor` (`victim/roles.sql`). Puede escribir `api_keys.status`, `ip_blocklist`, `sessions` y `user_suspensions` (para `suspend_user`); nada sobre `users`. Un `permission denied` queda en la bitácora como fallo de la capa `infra`.
 5. ✅ **Ejecutor del caso 2:** `revoke_key`, `block_ip`, `close_sessions` y `suspend_user` (aprobación humana). Admins y la red de la oficina están protegidos en la capa `policy` y otra vez con triggers en la base. Aprobar exige `X-Approver-Token` cuando `APPROVER_TOKEN` está configurado.
 
+Para desplegar: dos bases en Render (`centinela-db` para la víctima, `centinela-audit-db` solo para la bitácora), `TRUSTED_PROXY_HOPS=1` en la víctima y `APPROVER_TOKEN`, `EXECUTOR_DB_PASSWORD`, `EXECUTOR_DATABASE_URL` configurados a mano.
+
 Pendiente para integrar con B: el razonador debe leer `/access-log` y proponer `target.value` con ids numéricos (`api_key_id`, `user_id`) o la IP. Un botón de demo para `Executor.bypass_demo` mostraría la capa de la base de datos.
 
 ## Persona B — Maikol (@maikCyphlock) — IA, panel y demo

@@ -70,7 +70,15 @@ CREATE TRIGGER guard_protected_key BEFORE UPDATE ON api_keys
 
 CREATE OR REPLACE FUNCTION guard_protected_network() RETURNS trigger
 LANGUAGE plpgsql SECURITY DEFINER SET search_path = public, pg_temp AS $$
+DECLARE
+    host_len integer := CASE family(NEW.ip) WHEN 4 THEN 32 ELSE 128 END;
 BEGIN
+    -- Only single hosts, never ranges or IPv4-mapped IPv6 (which would slip
+    -- past the IPv4 office range below).
+    IF masklen(NEW.ip) <> host_len OR NEW.ip <<= inet '::ffff:0:0/96' THEN
+        RAISE EXCEPTION 'permission denied: % is not a single plain host address', NEW.ip
+            USING ERRCODE = 'insufficient_privilege';
+    END IF;
     IF EXISTS (SELECT 1 FROM protected_networks WHERE NEW.ip <<= cidr) THEN
         RAISE EXCEPTION 'permission denied: % is in a protected network', NEW.ip
             USING ERRCODE = 'insufficient_privilege';

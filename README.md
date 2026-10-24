@@ -81,7 +81,9 @@ The executor acts on that database with its own role, `centinela_executor` (`vic
 
 It has no privileges on `users`, `access_log` or `protected_networks`. Admin keys, admin users and the office network (`OFFICE_CIDR`) are protected twice: the executor's policy layer rejects them, and database triggers refuse them even if the executor is bypassed (`Executor.bypass_demo`). The refusal (`permission denied: ...`) lands in the audit log as an `infra` failure.
 
-Centinela env for case 2: `EXECUTOR_DATABASE_URL` (the executor role, never the owner URL), `AUDIT_DATABASE_URL` (Postgres audit log; falls back to `AUDIT_PATH`), `OFFICE_CIDR`, `APPROVER_TOKEN` (when set, `POST /api/approvals/{id}` requires `X-Approver-Token`).
+Centinela env for case 2: `EXECUTOR_DATABASE_URL` (the executor role, never the owner URL), `AUDIT_DATABASE_URL` (Postgres audit log in its own database, which the victim cannot reach; append-only, TRUNCATE refused; falls back to `AUDIT_PATH`), `OFFICE_CIDR`, `APPROVER_TOKEN` (when set, `POST /api/approvals/{id}` requires `X-Approver-Token`; set it on every public deploy).
+
+Victim env: `TRUSTED_PROXY_HOPS` (default `0`: ignore `X-Forwarded-For`; `1` on Render: trust only the right-most entry, which Render's proxy appends). Client-written entries are ignored, so a blocked IP cannot get back in by sending the header.
 
 ### Tests
 

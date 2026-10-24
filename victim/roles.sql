@@ -21,7 +21,7 @@ GRANT UPDATE (status) ON api_keys TO centinela_executor;
 -- bloquear_ip (and undo).
 GRANT SELECT, INSERT, DELETE ON ip_blocklist TO centinela_executor;
 -- cerrar_sesiones.
-GRANT SELECT, DELETE ON sessions TO centinela_executor;
+GRANT SELECT (id, user_id), DELETE ON sessions TO centinela_executor;
 -- suspend_user: a suspension row (plus closing that user's sessions).
 GRANT SELECT, INSERT, DELETE ON user_suspensions TO centinela_executor;
 -- Policy check for admins without reading users: one boolean per id.

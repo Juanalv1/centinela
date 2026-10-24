@@ -43,6 +43,8 @@ def test_tampering_is_blocked_and_detected(dsn, tmp_path):
             conn.execute("UPDATE audit_log SET line = 'x' WHERE seq = 1")
         with pytest.raises(psycopg.Error, match="append-only"):
             conn.execute("DELETE FROM audit_log WHERE seq = 1")
+        with pytest.raises(psycopg.Error, match="append-only"):
+            conn.execute("TRUNCATE audit_log")
         # An owner who disables the guard can still edit, but verify() catches it.
         conn.execute("ALTER TABLE audit_log DISABLE TRIGGER USER")
         conn.execute("""UPDATE audit_log SET line = replace(line, '"n":1', '"n":9') WHERE seq = 1""")

@@ -22,6 +22,10 @@ services:
         sync: false
       - key: OFFICE_CIDR
         value: 203.0.113.0/24
+      # Render's proxy appends the real client ip as the right-most
+      # X-Forwarded-For entry; everything to its left is client-written.
+      - key: TRUSTED_PROXY_HOPS
+        value: "1"
 
   - type: web
     name: centinela
@@ -42,10 +46,12 @@ services:
         value: claude-sonnet-5-5
       - key: POLL_SECONDS
         value: "2"
-      # Hash-chained audit log survives restarts.
+      # Hash-chained audit log survives restarts. Its own database: the victim
+      # (the machine under attack) must never hold credentials that reach it,
+      # and Centinela must never hold the victim's owner credential.
       - key: AUDIT_DATABASE_URL
         fromDatabase:
-          name: centinela-db
+          name: centinela-audit-db
           property: connectionString
       # postgresql://centinela_executor:<EXECUTOR_DB_PASSWORD>@<internal host>/<db>; never the owner URL.
       - key: EXECUTOR_DATABASE_URL
@@ -56,6 +62,9 @@ services:
         value: 203.0.113.0/24
 
 databases:
-  - name: centinela-db
+  - name: centinela-db         # victim data (owner: victim; executor gets its own role)
+    plan: basic-256mb
+    region: oregon
+  - name: centinela-audit-db   # Centinela's audit log only
     plan: basic-256mb
     region: oregon

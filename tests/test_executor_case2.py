@@ -43,6 +43,10 @@ def run(coro):
     (prop("block_ip", "ip", "203.0.113.10"), "protected network"),
     (prop("block_ip", "ip", "10.1.2.3"), "protected network"),
     (prop("block_ip", "ip", "127.0.0.1"), "protected network"),
+    (prop("block_ip", "ip", "::ffff:203.0.113.10"), "protected network"),
+    (prop("block_ip", "ip", "::ffff:10.0.0.1"), "protected network"),
+    (prop("block_ip", "ip", "0.0.0.0"), "not a single routable host"),
+    (prop("block_ip", "ip", "::"), "not a single routable host"),
     (prop("close_sessions", "user", "alice"), "not a user id"),
     (prop("suspend_user", "user", "-3"), "not a user id"),
 ])
@@ -65,7 +69,8 @@ def test_case2_policy_accepts_well_formed_targets(p):
 def lab(monkeypatch, tmp_path):
     dsn = fresh_db()
     for k, v in {"DATABASE_URL": dsn, "EXECUTOR_TOKEN": "t", "DEMO_LEAKED_KEY": LEAKED,
-                 "EXECUTOR_DB_PASSWORD": EXEC_PW, "OFFICE_CIDR": OFFICE[0]}.items():
+                 "EXECUTOR_DB_PASSWORD": EXEC_PW, "OFFICE_CIDR": OFFICE[0],
+                 "TRUSTED_PROXY_HOPS": "1"}.items():
         monkeypatch.setenv(k, v)
     mod = load_module("victim_app_exec", VICTIM / "app.py")
     exec_dsn = psycopg.conninfo.make_conninfo(dsn, user="centinela_executor", password=EXEC_PW)

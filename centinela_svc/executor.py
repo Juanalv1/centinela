@@ -129,6 +129,10 @@ def check_policy(proposal: Proposal, snapshot: dict | None,
             ip = ipaddress.ip_address(str(value).strip())
         except ValueError:
             return f"ip target {value!r} is not a valid ip"
+        if getattr(ip, "ipv4_mapped", None):
+            ip = ip.ipv4_mapped  # ::ffff:a.b.c.d is the IPv4 host a.b.c.d
+        if ip.is_unspecified or ip.is_multicast:
+            return f"ip {ip} is not a single routable host"
         for net in (*BASE_PROTECTED_NETWORKS, *protected_networks):
             network = ipaddress.ip_network(net, strict=False)
             if ip.version == network.version and ip in network:

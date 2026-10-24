@@ -109,21 +109,32 @@ def _query(sql: str, params: tuple = ()) -> list[tuple]:
         return cur.fetchall() if cur.description else []
 
 
-def _valid_ip(value: str) -> bool:
+def _normalize_ip(value: str) -> str | None:
+    """Canonical text form, with IPv4-mapped IPv6 turned into IPv4; None if invalid."""
     try:
-        ipaddress.ip_address(value)
-        return True
+        ip = ipaddress.ip_address(value.strip())
     except ValueError:
-        return False
+        return None
+    return str(getattr(ip, "ipv4_mapped", None) or ip)
+
+
+def _valid_ip(value: str) -> bool:
+    return _normalize_ip(value) is not None
 
 
 def client_ip(request: Request) -> str:
-    # Render terminates TLS and sets X-Forwarded-For; the left-most entry is the
-    # client. A malformed header falls back to the socket peer.
-    forwarded = (request.headers.get("x-forwarded-for") or "").split(",")[0].strip()
-    if forwarded and _valid_ip(forwarded):
-        return forwarded
-    return request.client.host if request.client else ""
+    """Client ip as seen by the trusted proxies in front of us.
+
+    Only the entries appended by our own proxies are trusted: with
+    TRUSTED_PROXY_HOPS=1 (Render) that is the right-most X-Forwarded-For entry.
+    Anything to its left was written by the client and is ignored. With 0
+    (default, no proxy) the header is ignored and the socket peer is used.
+    """
+    peer = request.client.host if request.client else ""
+    hops = int(os.environ.get("TRUSTED_PROXY_HOPS", "0") or 0)
+    entries = [e.strip() for e in (request.headers.get("x-forwarded-for") or "").split(",") if e.strip()]
+    candidate = entries[-hops] if hops > 0 and len(entries) >= hops else peer
+    return _normalize_ip(candidate) or _normalize_ip(peer) or peer
 
 
 def _authenticate(request: Request) -> tuple[int, str] | None:
