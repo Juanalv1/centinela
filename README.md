@@ -17,21 +17,23 @@ Hackathon project — Platanus Hack 26 Caracas, AI Security track. Work in progr
 
 ## Feasibility prototype
 
-One end-to-end case: a CPU-burning job on a "company server" is detected by Claude, proposed as `matar_proceso`, validated by a deterministic executor and killed.
+One end-to-end case: a CPU-burning job on a "company server" is detected by Claude, proposed as `kill_process`, validated by a deterministic executor and killed.
 
 ```
 attack.py ──POST /jobs──▶ victim (FastAPI, runs as user `app`)
                             ├─ db-sim (protected, runs as root)
                             └─ report.py (harmless CPU loop, fake `--pool stratum+tcp://...` argv)
 centinela ──GET /metrics (every 2 s)──▶ victim
-   ├─ reasoner.py  Claude → one `propose_action` tool call {accion, objetivo, justificacion}; no credentials
-   ├─ executor.py  deterministic: menu {matar_proceso}, pid in snapshot, name matches, pid != 1, not protected
-   │               → POST /kill with X-Executor-Token (victim answers 403 EPERM for root processes)
+   ├─ reasoner.py  Claude → one `propose_action` tool call {action, target{type,value}, rationale, evidence, confidence}; no credentials
+   ├─ executor.py  deterministic layers: menu (action + target type) → policy (allowlist: only pids the
+   │               victim marks `managed: true`, i.e. job-runner children) → lane from MENU (low confidence
+   │               escalates to human approval) → POST /kill with X-Executor-Token (infra: 403 EPERM for root)
    ├─ audit.py     hash-chained JSONL (each entry carries sha256 of the previous line)
-   └─ app.py       GET / panel, GET /api/state, POST /api/simulate-compromised (forged proposal → rejected)
+   └─ app.py       GET / panel, GET /api/state, POST /api/simulate-compromised (forged proposal → rejected, layer `policy`),
+   │               GET /api/approvals, POST /api/approvals/{id} {"approve": bool}
 ```
 
-Defense in depth: the model can only propose; the executor rejects anything off-menu or protected; and even a bypassed executor cannot kill `db-sim`, because the victim API runs unprivileged and the kernel returns EPERM.
+Defense in depth: the model can only propose; the executor rejects anything off-menu or outside its allowlist; and even a bypassed executor cannot kill `db-sim`, because the victim API runs unprivileged and the kernel returns EPERM.
 
 ### Run locally with Docker
 

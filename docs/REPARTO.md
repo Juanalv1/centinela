@@ -8,13 +8,15 @@ La división sigue la frontera de la arquitectura: **A es dueño de lo que actú
 ## Contrato compartido (acordarlo primero, 15 min juntos)
 
 `centinela_svc/domain.py` define el formato de `Proposal` y el `MENU`. Cualquier cambio a este archivo se acuerda entre los dos antes de hacer push.
-Menú del caso 2: `matar_proceso`, `revocar_clave`, `bloquear_ip`, `cerrar_sesiones`, más el carril `requiere_aprobacion`.
+Menú (`MENU`, identificadores en inglés): `kill_process` (process), `revoke_key` (key), `block_ip` (ip), `close_sessions` (user) en el carril `auto`, y `suspend_user` (user) en el carril `approval`. Fuera del menú: `none` y `recommend` (se muestra a un humano, nunca se ejecuta).
+Campos de `Proposal`: `action`, `target {type, value}`, `rationale` (en español, para el jurado), `evidence`, `confidence` (`low|medium|high`), `source`. `Decision`: `status`, `reason`, `layer` (`menu|policy|infra`, la capa que la frenó).
+Reglas del ejecutor: el carril sale solo del `MENU`; `confidence: low` en una acción `auto` la manda a aprobación humana (el modelo solo puede endurecer); `kill_process` solo acepta pids con `managed: true` en `/metrics` (lista blanca del job runner). Aprobaciones: `GET /api/approvals`, `POST /api/approvals/{id}` con `{"approve": bool}`.
 
 ## Persona A — Christian (@ChristianVeneko) — Capa de control y laboratorio
 
 Archivos: `centinela_svc/executor.py`, `centinela_svc/audit.py`, `victim/**`, `render.yaml`
 
-1. **Lista blanca en el ejecutor (urgente):** solo se pueden matar procesos lanzados por el job runner. Hoy es una lista negra, y en Render habría permitido matar `portdetectorv2`.
+1. **Lista blanca en el ejecutor:** hecha del lado del ejecutor (`managed: true`); falta que la víctima publique ese flag en `/metrics`.
 2. **Bitácora persistente:** pasarla de `/tmp` a Postgres de Render, manteniendo la cadena de hashes.
 3. **Víctima del caso 2:** una API de PyME con usuarios, claves de API y sesiones en Postgres. Un log de acceso HTTP que guarde el User-Agent.
 4. **Credencial mínima:** un rol de Postgres para el ejecutor con `GRANT` solo sobre `api_keys.status`, `ip_blocklist` y `sessions`. Nunca sobre `users`. Verificar que `permission denied` llegue a la bitácora.
