@@ -15,3 +15,6 @@ Replace the Spanish case-1 domain contract with the agreed English contract (`La
 
 ## Next step
 Apply the T4 victim diff on this branch, re-run the e2e, then PR to `main`.
+
+## Cloud verification
+- Deployed d46974a to Render (manual API trigger; GitHub app was not installed yet). Cloud e2e: kill_process executed, containment 7.57 s; forged proposal rejected with layer policy.
