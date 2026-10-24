@@ -12,8 +12,8 @@ Prove one end-to-end case in the cloud: a CPU-burning job on a "company server" 
 - [x] T1 victim service (FastAPI + psutil; /health, /metrics, /jobs, /kill with executor token; API runs non-root, protected process runs as root) — route: delegated (2+ non-trivial files)
 - [x] T2 centinela service (poller, Claude reasoner, executor, JSONL audit, panel) — route: delegated
 - [x] T3 attack.py + render.yaml + local docker e2e check — route: delegated
-- [ ] T4 deploy both services to Render via API — route: inline
-- [ ] T5 cloud e2e run with measured times; VIABILIDAD.md — route: inline
+- [x] T4 deploy both services to Render via API — route: inline
+- [x] T5 cloud e2e run with measured times; VIABILIDAD.md — route: inline
 
 ## Acceptance
 Cloud run shows CPU rising, AI proposing `matar_proceso`, executor validating and killing, CPU dropping; attack-to-containment time recorded.
@@ -24,3 +24,7 @@ Cloud run shows CPU rising, AI proposing `matar_proceso`, executor validating an
 
 ## Next step
 T4: deploy both services to Render, set `VICTIM_URL` on centinela to the victim's public URL and a shared random `EXECUTOR_TOKEN`.
+
+- T4: deployed via Render API (centinela-victim, centinela; starter, oregon).
+- T5: cloud e2e OK, containment 6.22 s / 5.49 s; forged proposal rejected. See VIABILIDAD.md.
+- Next: switch protected blacklist to killable allowlist; persist audit; await user confirmation before case 2.
