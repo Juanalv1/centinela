@@ -66,6 +66,7 @@ class AuditLog:
         self._seq = 0
         self._dsn = dsn
         self._conn = None
+        self._unique = None  # UniqueViolation type, set for the Postgres backend
         if dsn:
             self._init_pg()
         else:
@@ -84,6 +85,7 @@ class AuditLog:
     def _init_pg(self) -> None:
         import psycopg  # only needed for the Postgres backend
 
+        self._unique = psycopg.errors.UniqueViolation
         self._conn = psycopg.connect(self._dsn, autocommit=True)
         self._conn.execute(SCHEMA)
         rows = self._conn.execute(
@@ -91,22 +93,42 @@ class AuditLog:
             (self.keep,)).fetchall()
         self._resume([r[0] for r in rows])
 
+    def _pg_resync(self) -> None:
+        """Re-read the tail from the DB after a concurrent writer advanced it.
+
+        During a zero-downtime deploy the draining and starting containers both
+        run the monitor and write here, so their seq counters collide. Catching
+        up from the DB lets the survivor keep one valid chain instead of crashing.
+        """
+        row = self._conn.execute(
+            "SELECT seq, sha256 FROM audit_log ORDER BY seq DESC LIMIT 1").fetchone()
+        self._seq, self._prev = (row[0], row[1]) if row else (0, GENESIS)
+
     def append(self, kind: str, data: dict) -> dict:
         with self._lock:
-            seq = self._seq + 1
-            entry = {"seq": seq, "ts": time.time(), "kind": kind,
-                     "prev_sha256": self._prev, "data": data}
-            line = json.dumps(entry, sort_keys=True, separators=(",", ":"), default=str)
-            sha = _sha(line)
-            if self._conn is not None:
-                # Fails closed: if the write does not land, nothing is acknowledged.
-                self._conn.execute(
-                    "INSERT INTO audit_log (seq, ts, kind, prev_sha256, sha256, line) "
-                    "VALUES (%s, %s, %s, %s, %s, %s)",
-                    (seq, entry["ts"], kind, self._prev, sha, line))
-            else:
-                with self.path.open("a", encoding="utf-8") as fh:
-                    fh.write(line + "\n")
+            ts = time.time()
+            # Retry once: a concurrent writer (deploy overlap) may take our seq.
+            for attempt in (1, 2):
+                seq = self._seq + 1
+                entry = {"seq": seq, "ts": ts, "kind": kind,
+                         "prev_sha256": self._prev, "data": data}
+                line = json.dumps(entry, sort_keys=True, separators=(",", ":"), default=str)
+                sha = _sha(line)
+                if self._conn is None:
+                    with self.path.open("a", encoding="utf-8") as fh:
+                        fh.write(line + "\n")
+                    break
+                try:
+                    # Fails closed: if the write does not land, nothing is acknowledged.
+                    self._conn.execute(
+                        "INSERT INTO audit_log (seq, ts, kind, prev_sha256, sha256, line) "
+                        "VALUES (%s, %s, %s, %s, %s, %s)",
+                        (seq, ts, kind, self._prev, sha, line))
+                    break
+                except self._unique:
+                    if attempt == 2:
+                        raise
+                    self._pg_resync()  # catch up and relink to the real last entry
             self._seq = seq
             self._prev = sha
             self.entries.append(entry)
