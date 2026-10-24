@@ -60,6 +60,18 @@ The job is a pure arithmetic loop (no networking, stops itself after 10 minutes,
 
 `render.yaml` deploys both services to Render (secrets declared with `sync: false`).
 
+## Behavioral detection (no telling strings)
+
+`/metrics` also reports, per process, its parent (`ppid`, `parent`), network peers (`net`: count, listening sockets, up to 3 `ip:port STATE`) and disk I/O rate (`io`: `read_bps`/`write_bps` between polls; `null` where the platform does not expose it, e.g. macOS). Centinela keeps a baseline of the workloads seen during its first `BASELINE_SECONDS` (default 60) and marks later ones `new_since_baseline`. The prompt asks the model to judge behavior, never names alone.
+
+Two harmless jobs differ only in behavior: `sync` burns CPU and keeps a keep-alive connection to `SYNC_ENDPOINT` (a host we control) without writing to disk; `backup` burns CPU compressing data and writes real files (≤ 2 MB/s, three rotating 8 MB files) with no sockets. Neither carries a pool string.
+
+```sh
+EXECUTOR_TOKEN=... python behavior_trials.py --victim https://<victim> --centinela https://<centinela> --runs 5
+```
+
+The script starts each job N times and records whether the AI proposed `kill_process` for it (expected: every `sync`, no `backup`).
+
 ## Case 2: leaked API key on a small company's API (control layer)
 
 The victim also runs a small company's API on Postgres (enabled by `DATABASE_URL`): users, API keys, sessions and an HTTP access log that stores the User-Agent (attacker-controlled text). See `victim/pyme.py` and `victim/schema.sql`.

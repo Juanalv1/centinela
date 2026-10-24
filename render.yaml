@@ -27,6 +27,9 @@ services:
       # cloud: with 2, the victim sees the real client ip and ignores spoofs.
       - key: TRUSTED_PROXY_HOPS
         value: "2"
+      # Where the harmless `sync` job keeps its outbound connection (a host we control).
+      - key: SYNC_ENDPOINT
+        value: https://centinela-lyiy.onrender.com/health
 
   - type: web
     name: centinela
@@ -47,6 +50,9 @@ services:
         value: claude-sonnet-5-5
       - key: POLL_SECONDS
         value: "2"
+      # Warm-up window: workloads seen here form the baseline; later ones are "new".
+      - key: BASELINE_SECONDS
+        value: "60"
       # Hash-chained audit log survives restarts. Its own database: the victim
       # (the machine under attack) must never hold credentials that reach it,
       # and Centinela must never hold the victim's owner credential.

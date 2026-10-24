@@ -12,7 +12,9 @@ import urllib.request
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--target", required=True, help="victim base URL")
-    parser.add_argument("--job", default="report")
+    parser.add_argument("--job", default="report",
+                        help="report (obvious miner string), sync (disguised: CPU + outbound connection) "
+                             "or backup (legitimate: CPU + disk writes)")
     args = parser.parse_args()
 
     req = urllib.request.Request(
