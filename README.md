@@ -83,7 +83,7 @@ It has no privileges on `users`, `access_log` or `protected_networks`. Admin key
 
 Centinela env for case 2: `EXECUTOR_DATABASE_URL` (the executor role, never the owner URL), `AUDIT_DATABASE_URL` (Postgres audit log in its own database, which the victim cannot reach; append-only, TRUNCATE refused; falls back to `AUDIT_PATH`), `OFFICE_CIDR`, `APPROVER_TOKEN` (when set, `POST /api/approvals/{id}` requires `X-Approver-Token`; set it on every public deploy).
 
-Victim env: `TRUSTED_PROXY_HOPS` (default `0`: ignore `X-Forwarded-For`; `1` on Render: trust only the right-most entry, which Render's proxy appends). Client-written entries are ignored, so a blocked IP cannot get back in by sending the header.
+Victim env: `TRUSTED_PROXY_HOPS` (default `0`: ignore `X-Forwarded-For`; `2` on Render, where Cloudflare and Render's load balancer each append one entry; with `1` the victim would see a Cloudflare edge ip). Client-written entries are ignored, so a blocked IP cannot get back in by sending the header.
 
 ### Tests
 

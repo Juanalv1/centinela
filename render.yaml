@@ -22,10 +22,11 @@ services:
         sync: false
       - key: OFFICE_CIDR
         value: 203.0.113.0/24
-      # Render's proxy appends the real client ip as the right-most
-      # X-Forwarded-For entry; everything to its left is client-written.
+      # Two proxies sit in front of the service (Cloudflare, then Render's
+      # load balancer); each appends one X-Forwarded-For entry. Verified in the
+      # cloud: with 2, the victim sees the real client ip and ignores spoofs.
       - key: TRUSTED_PROXY_HOPS
-        value: "1"
+        value: "2"
 
   - type: web
     name: centinela
