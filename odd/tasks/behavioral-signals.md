@@ -34,12 +34,19 @@ Per-process signals (psutil, Linux), added to `/metrics` and passed to the reaso
 
 ## Tasks
 Owner: Christian (@ChristianVeneko) for all tasks.
+
+### A — stolen credential (demo, do first)
+- [ ] A1 (`victim/`): access log per request (key id, proxy-appended client IP, endpoint, bytes, time) + seeded lab history for the demo key; tests.
+- [ ] A2 (`centinela_svc/`): deterministic per-key baseline; reasoner receives "key vs its history" and proposes `revoke_key`; prompt reasons on behavior, never on single signals.
+- [ ] A3: live test — demo key used from another network with slow paginated export vs normal use of a legit key. Expected `revoke_key` for the first, `none` for the second, 5 runs each. Record results here.
+
+### B — hidden miner (process signals; T1–T3 below)
 - [x] T1 (Christian, `victim/`): expose the signals above in `/metrics`; keep the payload compact; tests. Route: inline. Done: `victim/behavior.py` (parent, net peers ≤3, io bps delta; `null` when unreadable/unsupported), `tests/test_victim_behavior.py`.
 - [x] T2 (Christian, `centinela_svc/reasoner.py`, `monitor.py`): include the signals and the baseline in the snapshot; update the prompt to reason on behavior; never on names alone. Route: inline. Done: `monitor.Baseline` (`BASELINE_SECONDS`, default 60; signature = name + first non-flag arg), behavior-first prompt, `tests/test_behavior_snapshot.py`.
 - [ ] T3 (Christian): demo job variant without the pool string in its cmdline, plus a legitimate heavy job. Expected: AI proposes `kill_process` for the first and `none` for the second, across 5 runs each. Record results here. Route: inline. Code done: jobs `sync` (CPU + keep-alive to `SYNC_ENDPOINT`, no disk) and `backup` (CPU + real disk writes, no sockets), runner `behavior_trials.py`. **Pending: cloud run** (needs deploy to Render + `SYNC_ENDPOINT` set on the victim service).
 
 ## Acceptance
-T3 passes in the cloud (5/5 detected, 0/5 false positives) before the pitch claims "detects by behavior".
+A3 passes in the cloud (5/5 detected, 0/5 false positives) before the pitch claims "detects by behavior". T3 passes before claiming the miner case.
 
 ## Constraints
 - Keep all workloads harmless (arithmetic loops, ordinary file writes, connections only to hosts we control).
