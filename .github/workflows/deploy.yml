@@ -1,0 +1,26 @@
+name: Deploy to Render
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Trigger Render deploy hooks
+        env:
+          HOOK_VICTIM: ${{ secrets.RENDER_HOOK_VICTIM }}
+          HOOK_CENTINELA: ${{ secrets.RENDER_HOOK_CENTINELA }}
+        run: |
+          for name in VICTIM CENTINELA; do
+            var="HOOK_$name"
+            url="${!var}"
+            if [ -z "$url" ]; then
+              echo "::error::secret RENDER_HOOK_$name is not set"
+              exit 1
+            fi
+            curl -fsS -X POST "$url" > /dev/null
+            echo "deploy triggered: $name"
+          done
