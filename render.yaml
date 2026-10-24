@@ -1,0 +1,32 @@
+services:
+  - type: web
+    name: centinela-victim
+    runtime: docker
+    rootDir: victim
+    dockerfilePath: ./Dockerfile
+    plan: starter
+    region: oregon
+    healthCheckPath: /health
+    envVars:
+      - key: EXECUTOR_TOKEN
+        sync: false
+
+  - type: web
+    name: centinela
+    runtime: docker
+    rootDir: centinela_svc
+    dockerfilePath: ./Dockerfile
+    plan: starter
+    region: oregon
+    healthCheckPath: /health
+    envVars:
+      - key: VICTIM_URL
+        sync: false
+      - key: EXECUTOR_TOKEN
+        sync: false
+      - key: ANTHROPIC_API_KEY
+        sync: false
+      - key: MODEL
+        value: claude-sonnet-5-5
+      - key: POLL_SECONDS
+        value: "2"
