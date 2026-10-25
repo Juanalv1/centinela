@@ -25,7 +25,7 @@ Per method: theft caught, legit false revokes, per family; plus the AI's rationa
 ## Tasks
 - [x] V1: scenarios + rule baseline + LLM judge + runner, with tests using a fake judge. Route: delegated (2+ non-trivial files).
   Done: `evals/key_judgment/` (27 scenarios, 9 families x 3, one hard each); rule catches 8/12 theft with 10/15 legit false revokes; 12 tests green, dry run OK; real model not run.
-- [ ] V2: real run with the model; record results in `docs/evals/key-judgment.md`. Route: inline (needs the API key).
+- [x] V2: real run with the model; record results in `docs/evals/key-judgment.md`. Route: inline (needs the API key). Done: AI theft 21/36 revoked, 0 allowed, 15 asked a human; legit false revokes 8/45 (all in hard variants) vs rule 10/15; 25/27 scenarios stable; effort low.
 
 ## Acceptance
 The idea is supported only if the AI revokes the large majority of theft variants and makes clearly fewer legit false revokes than the rule. Otherwise the result is recorded as a failed validation.

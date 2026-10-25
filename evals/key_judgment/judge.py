@@ -62,8 +62,9 @@ def load_api_key(env_file: Path = REPO_ROOT / ".env") -> str | None:
         return os.environ["ANTHROPIC_API_KEY"]
     if not env_file.exists():
         return None
-    for line in env_file.read_text(encoding="utf-8").splitlines():
-        key, sep, value = line.strip().partition("=")
+    # utf-8-sig: Windows editors may save a BOM; "export " lines are common in shell-style .env files.
+    for line in env_file.read_text(encoding="utf-8-sig").splitlines():
+        key, sep, value = line.strip().removeprefix("export ").partition("=")
         if sep and key.strip() == "ANTHROPIC_API_KEY":
             return value.strip().strip('"').strip("'") or None
     return None
