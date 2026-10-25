@@ -27,6 +27,7 @@ Delivery: ask-on-risk; branch `feat/members`, work-unit commits; merge to main (
 - [x] T1 Members store (audit DB table + in-memory fallback), bootstrap from `ADMIN_EMAILS`, audit events. Route: delegated (writer trigger).
 - [x] T2 Login gate (non-members → "sin acceso"), `/api/me` role, approvals authorized by role instead of `ADMIN_EMAILS`. Route: delegated with T1.
 - [x] T3 API + dashboard "Equipo" section: list, invite by email, change role, remove, with guards. Route: delegated with T1.
+- [x] T4 Member change and audit entry commit atomically. Route: delegated writer.
 
 ## Acceptance
 
@@ -42,3 +43,4 @@ Delivery: ask-on-risk; branch `feat/members`, work-unit commits; merge to main (
 - Design: non-member keeps a session but gets 303 to `/sin-acceso` (403 page with escaped email, switch account, logout); role re-read from the store each request, fail closed on DB error; `GET /api/members` is admin-only; last-admin guard via `SELECT ... FOR UPDATE` on admin rows in a transaction; bootstrap under `LOCK TABLE`; member writes raise (503) instead of being swallowed.
 - Verification: baseline `pytest -q tests centinela_svc` 181 passed; after changes 213 passed.
 - Deploy note: `ADMIN_EMAILS` is bootstrap-only (used only while the `member` table is empty); no new env vars.
+- T4 (uncommitted): `AuditLog.append_in(conn, ...)` + `adopt(entry)` insert the hash-chained entry in the member transaction (advisory xact lock on the chain tail, savepoint retry on seq collision with plain `append`); all `MemberStore` writes use it, so an audit failure rolls the change back (503). In-memory/JSONL fallbacks append the audit entry first and mutate only on success. Verification: `pytest -q tests centinela_svc` 220 passed (baseline 213; +7 tests: rollback x4 ops, both-rows+chain, concurrent two-AuditLog gap-free chain, fallback no-mutate).

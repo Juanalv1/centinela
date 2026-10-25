@@ -1,4 +1,7 @@
 """Invite-only members: store, login gate, role-based approvals and the /api/members routes."""
+import json
+import threading
+
 import pytest
 from fastapi.testclient import TestClient
 
@@ -105,6 +108,121 @@ def test_two_stores_cannot_demote_both_last_admins(tmp_path):
     with pytest.raises(MemberError) as e:
         b.set_role("a@x.com", "viewer", "b@x.com")
     assert e.value.code == "last_admin"
+
+
+# --- member change + audit entry are one transaction ----------------------
+
+def pg_pair(tmp_path):
+    dsn = fresh_db()
+    audit = AuditLog(str(tmp_path / "a.jsonl"), dsn=dsn)
+    return dsn, audit, MemberStore(dsn, audit)
+
+
+def chain_ok(audit):
+    """Recompute the whole chain from the DB: valid hashes, prev links and gap-free seq."""
+    rows = audit._conn.execute("SELECT seq, line, sha256 FROM audit_log ORDER BY seq").fetchall()
+    assert [r[0] for r in rows] == list(range(1, len(rows) + 1))
+    assert audit.verify() == (True, None)
+    return [json.loads(r[1]) for r in rows]
+
+
+def break_audit_insert(audit, monkeypatch):
+    """Make the audit INSERT fail inside the member transaction (the member write itself still runs)."""
+    real = audit.append_in
+
+    def boom(conn, kind, data):
+        conn.execute("INSERT INTO audit_log (seq, ts, kind, prev_sha256, sha256, line) VALUES (NULL, 0, '', '', '', '')")
+        return real(conn, kind, data)
+    monkeypatch.setattr(audit, "append_in", boom)
+
+
+def test_pg_change_and_audit_entry_both_land_and_chain_stays_valid(tmp_path):
+    dsn, audit, st = pg_pair(tmp_path)
+    st.bootstrap(["a@x.com"])
+    st.add("v@x.com", "viewer", "a@x.com")
+    st.set_role("v@x.com", "admin", "a@x.com")
+    st.remove("v@x.com", "a@x.com")
+    entries = chain_ok(audit)
+    assert [(e["data"]["action"], e["data"]["email"]) for e in entries] == [
+        ("add", "a@x.com"), ("add", "v@x.com"), ("role", "v@x.com"), ("remove", "v@x.com")]
+    assert [e["seq"] for e in audit.entries] == [1, 2, 3, 4]  # in-memory tail adopted after commit
+    audit.append("note", {})  # a plain append continues the chain after transactional ones
+    assert len(chain_ok(audit)) == 5
+
+
+@pytest.mark.parametrize("op", ["bootstrap", "add", "role", "remove"])
+def test_pg_audit_failure_rolls_back_the_member_change(tmp_path, monkeypatch, op):
+    dsn, audit, st = pg_pair(tmp_path)
+    if op != "bootstrap":
+        st.bootstrap(["a@x.com"])
+        st.add("v@x.com", "viewer", "a@x.com")
+    before_members, before_audit = st.list(), chain_ok(audit) if op != "bootstrap" else []
+    tail = list(audit.entries)
+    break_audit_insert(audit, monkeypatch)
+    calls = {"bootstrap": lambda: st.bootstrap(["z@x.com"]),
+             "add": lambda: st.add("n@x.com", "viewer", "a@x.com"),
+             "role": lambda: st.set_role("v@x.com", "admin", "a@x.com"),
+             "remove": lambda: st.remove("v@x.com", "a@x.com")}
+    with pytest.raises(MemberError) as e:
+        calls[op]()
+    assert e.value.code == "unavailable"
+    assert st.list() == before_members  # member table unchanged
+    assert audit._conn.execute("SELECT count(*) FROM audit_log").fetchone()[0] == len(before_audit)
+    assert audit.entries == tail  # in-memory tail untouched on rollback
+    monkeypatch.undo()
+    assert chain_ok(audit) == before_audit
+
+
+def test_pg_concurrent_appends_from_two_audit_logs_keep_one_chain(tmp_path):
+    dsn = fresh_db()
+    plain, other = AuditLog(str(tmp_path / "1.jsonl"), dsn=dsn), AuditLog(str(tmp_path / "2.jsonl"), dsn=dsn)
+    st = MemberStore(dsn, other)
+    errors = []
+
+    def plain_writer():
+        try:
+            for i in range(25):
+                plain.append("tick", {"i": i})
+        except Exception as exc:  # pragma: no cover - failure is asserted below
+            errors.append(exc)
+
+    def member_writer():
+        try:
+            for i in range(25):
+                st.add(f"m{i}@x.com", "viewer", "a@x.com")
+        except Exception as exc:  # pragma: no cover
+            errors.append(exc)
+    threads = [threading.Thread(target=plain_writer), threading.Thread(target=member_writer)]
+    [t.start() for t in threads]
+    [t.join() for t in threads]
+    assert errors == []
+    entries = chain_ok(plain)  # gap-free seq and valid links
+    assert len(entries) == 50
+    assert sum(e["kind"] == "member" for e in entries) == 25
+    assert len(st.list()) == 25
+
+
+def test_fallback_never_mutates_when_audit_append_fails(tmp_path):
+    class BrokenAudit:
+        transactional = False
+
+        def append(self, kind, data):
+            raise OSError("disk full")
+    st = MemberStore(None, BrokenAudit())
+    with pytest.raises(MemberError) as e:
+        st.bootstrap(["a@x.com"])
+    assert e.value.code == "unavailable" and st.list() == []
+    st = MemberStore(None, AuditLog(str(tmp_path / "a.jsonl")))
+    st.bootstrap(["a@x.com"])
+    st.add("v@x.com", "viewer", "a@x.com")
+    st._audit = BrokenAudit()
+    for call in (lambda: st.add("n@x.com", "viewer", "a@x.com"),
+                 lambda: st.set_role("v@x.com", "admin", "a@x.com"),
+                 lambda: st.remove("v@x.com", "a@x.com")):
+        with pytest.raises(MemberError) as e:
+            call()
+        assert e.value.code == "unavailable"
+    assert {m["email"]: m["role"] for m in st.list()} == {"a@x.com": "admin", "v@x.com": "viewer"}
 
 
 # --- login gate ---------------------------------------------------------

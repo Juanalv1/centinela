@@ -2,7 +2,9 @@
 
 Members live in their own table of the audit database (never the victim's, never
 inside the hash chain), and every change is also appended to the hash-chained
-audit log as `kind: "member"`. Without `AUDIT_DATABASE_URL` the store is in
+audit log as `kind: "member"`, in the SAME Postgres transaction as the change (both or neither).
+The in-memory / JSONL fallbacks cannot be transactional, so they append the audit entry first
+and mutate only if it succeeded: there is never an unaudited change. Without `AUDIT_DATABASE_URL` the store is in
 memory, seeded from `ADMIN_EMAILS` on every start: NOT persistent.
 
 Unlike the audience store, writes are never swallowed: a failed write raises
@@ -83,9 +85,35 @@ class MemberStore:
                 log.warning("member store failed: %s", exc)
                 raise MemberError("unavailable") from exc
 
-    def _emit(self, action: str, email: str, role: str | None, actor: str) -> None:
-        if self._audit is not None:
+    def _audit_in(self, conn, pending: list, action: str, email: str, role: str | None, actor: str) -> None:
+        """Write the audit entry inside the member transaction `conn` has open (both commit or neither).
+
+        With a Postgres audit log the entry joins the transaction and is queued in `pending`
+        for `_adopt` after commit. A JSONL audit log cannot be transactional: it is appended
+        before the commit, so a failure there rolls the change back and a failed commit can
+        at worst leave an audit line for a change that did not apply, never the reverse.
+        """
+        if self._audit is None:
+            return
+        data = {"action": action, "email": email, "role": role, "actor": actor}
+        if getattr(self._audit, "transactional", False):
+            pending.append(self._audit.append_in(conn, "member", data))
+        else:
+            self._audit.append("member", data)
+
+    def _adopt(self, pending: list) -> None:
+        for entry in pending:  # call only after the transaction committed
+            self._audit.adopt(entry)
+
+    def _audit_first(self, action: str, email: str, role: str | None, actor: str) -> None:
+        """In-memory store: append the audit entry before mutating, so a change is never unaudited."""
+        if self._audit is None:
+            return
+        try:
             self._audit.append("member", {"action": action, "email": email, "role": role, "actor": actor})
+        except Exception as exc:
+            log.warning("member audit failed: %s", exc)
+            raise MemberError("unavailable") from exc
 
     # --- reads ------------------------------------------------------------
     def list(self) -> list[dict]:
@@ -116,22 +144,22 @@ class MemberStore:
                 if self._mem:
                     return []
                 for e in wanted:
+                    self._audit_first("add", e, "admin", "bootstrap")
                     self._mem[e] = {"email": e, "role": "admin", "added_by": "bootstrap", "added_at": now}
-            inserted = wanted
-        else:
-            def run(conn):
-                with conn.transaction():
-                    conn.execute("LOCK TABLE member IN EXCLUSIVE MODE")  # two containers may start together
-                    if conn.execute("SELECT 1 FROM member LIMIT 1").fetchone():
-                        return []
-                    for e in wanted:
-                        conn.execute("INSERT INTO member (email, role, added_by, added_at) "
-                                     "VALUES (%s, 'admin', 'bootstrap', %s)", (e, now))
-                    return wanted
-            inserted = self._db(run)
-        for e in inserted:
-            self._emit("add", e, "admin", "bootstrap")
-        return inserted
+            return wanted
+        def run(conn):
+            pending: list = []
+            with conn.transaction():
+                conn.execute("LOCK TABLE member IN EXCLUSIVE MODE")  # two containers may start together
+                if conn.execute("SELECT 1 FROM member LIMIT 1").fetchone():
+                    return []
+                for e in wanted:
+                    conn.execute("INSERT INTO member (email, role, added_by, added_at) "
+                                 "VALUES (%s, 'admin', 'bootstrap', %s)", (e, now))
+                    self._audit_in(conn, pending, "add", e, "admin", "bootstrap")
+            self._adopt(pending)
+            return wanted
+        return self._db(run)
 
     # --- writes -----------------------------------------------------------
     def add(self, email: str, role: str, actor: str) -> dict:
@@ -143,19 +171,22 @@ class MemberStore:
             with self._lock:
                 if email in self._mem:
                     raise MemberError("exists")
+                self._audit_first("add", email, role, actor)
                 member = self._mem[email] = {"email": email, "role": role, "added_by": actor, "added_at": now}
-        else:
-            def run(conn):
+                return dict(member)
+        def run(conn):
+            pending: list = []
+            with conn.transaction():
                 row = conn.execute(
                     "INSERT INTO member (email, role, added_by, added_at) VALUES (%s, %s, %s, %s) "
                     "ON CONFLICT (email) DO NOTHING RETURNING email, role, added_by, added_at",
                     (email, role, actor, now)).fetchone()
                 if row is None:
                     raise MemberError("exists")
-                return _row(row)
-            member = self._db(run)
-        self._emit("add", email, role, actor)
-        return dict(member)
+                self._audit_in(conn, pending, "add", email, role, actor)
+            self._adopt(pending)
+            return _row(row)
+        return self._db(run)
 
     def set_role(self, email: str, role: str, actor: str) -> dict:
         email, actor = normalize_email(email), (actor or "").strip().lower()
@@ -170,10 +201,12 @@ class MemberStore:
                     raise MemberError("not_found")
                 if member["role"] == "admin" and role != "admin" and self._admins() <= 1:
                     raise MemberError("last_admin")
+                self._audit_first("role", email, role, actor)
                 member["role"] = role
-                result = dict(member)
+                return dict(member)
         else:
             def run(conn):
+                pending: list = []
                 with conn.transaction():
                     admins = {r[0] for r in conn.execute(
                         "SELECT email FROM member WHERE role = 'admin' FOR UPDATE").fetchall()}
@@ -182,12 +215,13 @@ class MemberStore:
                         raise MemberError("not_found")
                     if email in admins and role != "admin" and len(admins) <= 1:
                         raise MemberError("last_admin")
-                    return _row(conn.execute(
+                    result = _row(conn.execute(
                         "UPDATE member SET role = %s WHERE email = %s RETURNING email, role, added_by, added_at",
                         (role, email)).fetchone())
-            result = self._db(run)
-        self._emit("role", email, role, actor)
-        return result
+                    self._audit_in(conn, pending, "role", email, role, actor)
+                self._adopt(pending)
+                return result
+            return self._db(run)
 
     def remove(self, email: str, actor: str) -> None:
         email, actor = normalize_email(email), (actor or "").strip().lower()
@@ -202,9 +236,11 @@ class MemberStore:
                     raise MemberError("not_found")
                 if member["role"] == "admin" and self._admins() <= 1:
                     raise MemberError("last_admin")
+                self._audit_first("remove", email, None, actor)
                 del self._mem[email]
         else:
             def run(conn):
+                pending: list = []
                 with conn.transaction():
                     admins = {r[0] for r in conn.execute(
                         "SELECT email FROM member WHERE role = 'admin' FOR UPDATE").fetchall()}
@@ -212,8 +248,9 @@ class MemberStore:
                         raise MemberError("last_admin")
                     if conn.execute("DELETE FROM member WHERE email = %s RETURNING email", (email,)).fetchone() is None:
                         raise MemberError("not_found")
+                    self._audit_in(conn, pending, "remove", email, None, actor)
+                self._adopt(pending)
             self._db(run)
-        self._emit("remove", email, None, actor)
 
     def _admins(self) -> int:
         return sum(1 for m in self._mem.values() if m["role"] == "admin")

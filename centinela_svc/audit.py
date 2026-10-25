@@ -13,6 +13,7 @@ import time
 from pathlib import Path
 
 GENESIS = "0" * 64
+CHAIN_LOCK_KEY = 0x43454E54  # pg_advisory_xact_lock key serializing transactional appends ("CENT")
 
 SCHEMA = """
 CREATE TABLE IF NOT EXISTS audit_log (
@@ -134,6 +135,54 @@ class AuditLog:
             self.entries.append(entry)
             del self.entries[:-self.keep]
             return entry
+
+    @property
+    def transactional(self) -> bool:
+        """True when entries can join a caller's Postgres transaction (`append_in`)."""
+        return self._conn is not None
+
+    def append_in(self, conn, kind: str, data: dict) -> dict:
+        """Insert an entry through the caller's connection, inside the caller's open transaction.
+
+        The entry commits or rolls back with the caller's own changes. Seq and prev
+        hash come from the DB tail, read after taking a transaction-scoped advisory
+        lock, so transactional writers (any container) serialize on the chain tail.
+        Plain `append` (other writers, deploy overlap) takes no lock; if it lands
+        the same seq first, the insert raises UniqueViolation (in a savepoint) and
+        we re-read the tail and relink once, mirroring `append`'s resync.
+
+        The in-memory tail is NOT touched here: call `adopt(entry)` after the
+        caller's transaction commits (never when it rolls back).
+        """
+        if self._conn is None:
+            raise RuntimeError("append_in needs the Postgres backend")
+        ts = time.time()
+        conn.execute("SELECT pg_advisory_xact_lock(%s)", (CHAIN_LOCK_KEY,))
+        for attempt in (1, 2):
+            row = conn.execute("SELECT seq, sha256 FROM audit_log ORDER BY seq DESC LIMIT 1").fetchone()
+            seq, prev = (row[0] + 1, row[1]) if row else (1, GENESIS)
+            entry = {"seq": seq, "ts": ts, "kind": kind, "prev_sha256": prev, "data": data}
+            line = json.dumps(entry, sort_keys=True, separators=(",", ":"), default=str)
+            try:
+                with conn.transaction():  # savepoint: a collision must not abort the caller's transaction
+                    conn.execute(
+                        "INSERT INTO audit_log (seq, ts, kind, prev_sha256, sha256, line) "
+                        "VALUES (%s, %s, %s, %s, %s, %s)",
+                        (seq, ts, kind, prev, _sha(line), line))
+                return entry
+            except self._unique:
+                if attempt == 2:
+                    raise
+
+    def adopt(self, entry: dict) -> None:
+        """Fold an entry committed through `append_in` into the in-memory tail."""
+        with self._lock:
+            self.entries.append(entry)
+            self.entries.sort(key=lambda e: e["seq"])
+            del self.entries[:-self.keep]
+            if entry["seq"] > self._seq:
+                line = json.dumps(entry, sort_keys=True, separators=(",", ":"), default=str)
+                self._seq, self._prev = entry["seq"], _sha(line)
 
     def recent(self, n: int) -> list[dict]:
         """The last `n` entries re-read from storage, oldest first (used to rebuild state on startup)."""
