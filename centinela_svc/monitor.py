@@ -20,6 +20,7 @@ log = logging.getLogger("centinela.monitor")
 HEARTBEAT_S = 30.0
 BASELINE_S = float(os.environ.get("BASELINE_SECONDS", "60"))
 KEY_WINDOW_S = float(os.environ.get("KEY_WINDOW_SECONDS", "600"))
+HOT_TRIGGER_S = 20.0    # a process this long above half the CPU budget wakes the reasoner once
 KEY_REASON_S = 60.0     # a key that stays flagged wakes the reasoner again only after this
 KEY_STATE_S = 10.0      # how often key status/labels are refreshed from /security-state
 LOG_PAGES_PER_TICK = 10
@@ -100,6 +101,7 @@ class Monitor:
         self._last_reason_at = 0.0
         self.baseline = Baseline(BASELINE_S, time.time())
         self.sustained = SustainedCpu()
+        self._hot_reasoned: set[tuple[int, float]] = set()  # (pid, create_time) already re-evaluated
         self.keywatch = KeyWatch(KEY_WINDOW_S, float(os.environ.get("LAB_TZ_OFFSET_HOURS", "-4")))
         self.key_activity: list[dict] = []
         self._keys_enabled = True  # turned off when the victim has no case-2 database
@@ -156,13 +158,18 @@ class Monitor:
         self._pending_new = (pids - self._known_pids) if self._known_pids is not None else set()
         self._known_pids = pids
         due_keys = await self._watch_keys(metrics, now)
+        # Sustained load is only judgeable after a while: re-evaluate when it gets there.
+        self._hot_reasoned &= {(p["pid"], p.get("create_time", 0.0)) for p in metrics["processes"]}
+        due_hot = {(p["pid"], p.get("create_time", 0.0)) for p in metrics["processes"]
+                   if p.get("cpu_sustained_s", 0) >= HOT_TRIGGER_S} - self._hot_reasoned
         heartbeat = now - self._last_reason_at >= HEARTBEAT_S
-        if (due_new or due_keys) and self.reasoner_busy:
+        if (due_new or due_keys or due_hot) and self.reasoner_busy:
             self._pending_new |= due_new  # retry on the next sample
             for key in due_keys:
                 self._key_reasoned_at.pop(key, None)
-        elif (due_new or due_keys or heartbeat) and not self.reasoner_busy:
+        elif (due_new or due_keys or due_hot or heartbeat) and not self.reasoner_busy:
             self._last_reason_at = now
+            self._hot_reasoned |= due_hot
             asyncio.create_task(self._reason(metrics))
 
     async def _watch_keys(self, metrics: dict, now: float) -> set[int]:

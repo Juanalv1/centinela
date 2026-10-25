@@ -116,3 +116,38 @@ def test_victim_without_case2_database_is_polled_once_then_skipped():
 
 def test_snapshot_without_key_activity_has_an_empty_list():
     assert reasoner_mod.compact_snapshot({"processes": []})["key_activity"] == []
+
+
+def test_a_process_crossing_the_sustained_cpu_mark_wakes_the_reasoner_once():
+    clock = {"t": 1000.0}
+
+    class Hot(Victim):
+        def __call__(self, request):
+            if request.url.path == "/metrics":
+                return httpx.Response(200, json={"server_time": clock["t"], "cpu_percent": 50, "cpu_count": 16,
+                                                 "cpu_quota_cores": 0.5, "processes": [
+                    {"pid": 33, "name": "python", "cmdline": ["python", "x.py"], "username": "app",
+                     "cpu_percent": 47.0, "quota_percent": 94.0, "create_time": 990.0, "managed": True}]})
+            return super().__call__(request)
+
+    async def run():
+        reasoner = FakeReasoner()
+        async with httpx.AsyncClient(transport=httpx.MockTransport(Hot([], access_status=503))) as http:
+            mon = monitor_mod.Monitor("http://victim", 2, reasoner, FakeExecutor(), http)
+            mon._known_pids = {33}  # already evaluated as a new pid
+            mon._last_reason_at = float("inf")
+            for t in range(1000, 1050, 5):
+                clock["t"] = float(t)
+                monitor_mod.time.time = lambda: clock["t"]
+                await mon.tick()
+                await asyncio.sleep(0)
+                await asyncio.sleep(0)
+        return reasoner
+
+    import time as real_time
+    try:
+        reasoner = asyncio.run(run())
+    finally:
+        monitor_mod.time.time = real_time.time
+    assert len(reasoner.seen) == 1
+    assert reasoner.seen[0]["processes"][0]["cpu_sustained_s"] >= monitor_mod.HOT_TRIGGER_S
