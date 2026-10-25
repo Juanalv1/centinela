@@ -181,6 +181,12 @@ ul.log{list-style:none;margin:10px 0 0;padding:0;font-family:var(--mono);font-si
         <p class="note">Solo las personas invitadas entran al panel. La app de Google está en modo de prueba: además de invitar aquí, agrega el correo como usuario de prueba en la consola de Google.</p></div>
     </section>
 
+    <section id="credenciales" aria-labelledby="h-cred">
+      <h2 id="h-cred">Credenciales</h2>
+      <div class="card"><div class="tw" id="creds"></div>
+        <p class="note" id="credNote"></p><p class="note" id="credMsg" role="status"></p></div>
+    </section>
+
     <section id="politica" aria-labelledby="h-pol">
       <h2 id="h-pol">Política de respuesta</h2>
       <div class="card tw" id="policy"></div>
@@ -279,12 +285,13 @@ const Agent = (() => {
   const SVGNS = 'http://www.w3.org/2000/svg';
   const POLL_MS = 2000;
   let ME = {auth: 'demo', user: null, can_approve: false, can_manage: false};
-  let LIVE = null, STATS = null, STATE = null;
-  const cpuHist = [], busy = new Set();
+  let LIVE = null, STATS = null, STATE = null, KEYS = null;
+  const cpuHist = [], busy = new Set(), keyBusy = new Set();
   const NAV = [
     ['resumen', 'Resumen', 'M3 11l9-8 9 8v9a1 1 0 0 1-1 1h-5v-6H9v6H4a1 1 0 0 1-1-1z'],
     ['incidentes', 'Incidentes', 'M12 3l10 18H2z M12 10v5 M12 18h.01'],
     ['aprobaciones', 'Aprobaciones', 'M5 12l5 5L20 7'],
+    ['credenciales', 'Credenciales', 'M14 10a4 4 0 1 0-4-4 M14 10l7 7v4h-4v-2h-2v-2h-2l-1.5-1.5'],
     ['servidores', 'Servidores', 'M3 4h18v6H3z M3 14h18v6H3z M7 7h.01 M7 17h.01'],
     ['politica', 'Política de respuesta', 'M12 3l8 3v6c0 5-3.5 8-8 9-4.5-1-8-4-8-9V6z'],
     ['auditoria', 'Registro de auditoría', 'M6 3h9l4 4v14H6z M9 12h7 M9 16h7'],
@@ -310,6 +317,9 @@ const Agent = (() => {
     if (cls) e.className = cls;
     return e;
   }
+  const icon = id => NAV.find(n => n[0] === id)[2];
+  const KEY_STATE = {active: ['activa', 'b-auto'], suspicious: ['sospechosa', 'b-bad'], revoked: ['revocada', 'b-neutral']};
+  const DAYS = {Mon: 'lun', Tue: 'mar', Wed: 'mié', Thu: 'jue', Fri: 'vie', Sat: 'sáb', Sun: 'dom'};
   function badge(key) { const [t, c] = LANE[key]; return el('span', t, 'badge ' + c); }
   function clear(node) { node.replaceChildren(); return node; }
   const time = ts => ts ? new Date(ts * 1000).toLocaleTimeString() : 'sin datos';
@@ -391,14 +401,14 @@ const Agent = (() => {
     // banner
     const lastInc = incidents[0];
     const unconfirmed = lastInc && lastInc.gone_confirmed_at == null;
-    let kind = '', title = 'Todo en orden', text = 'No hay amenazas activas.', icon = NAV[4][2];
-    if (bad) { kind = 'threat'; title = 'Sin lectura del servidor'; text = s.last_error; icon = NAV[1][2]; }
-    else if (approvals.length) { kind = 'human'; title = approvals.length + ' acción(es) esperan aprobación humana'; text = 'Centinela no actuará hasta que una persona decida.'; icon = NAV[2][2]; }
-    else if (unconfirmed) { kind = 'threat'; title = 'Amenaza contenida, confirmando'; text = 'Se terminó el proceso ' + (lastInc.name || lastInc.pid) + '; esperando que desaparezca.'; icon = NAV[1][2]; }
+    let kind = '', title = 'Todo en orden', text = 'No hay amenazas activas.', ico = icon('politica');
+    if (bad) { kind = 'threat'; title = 'Sin lectura del servidor'; text = s.last_error; ico = icon('incidentes'); }
+    else if (approvals.length) { kind = 'human'; title = approvals.length + ' acción(es) esperan aprobación humana'; text = 'Centinela no actuará hasta que una persona decida.'; ico = icon('aprobaciones'); }
+    else if (unconfirmed) { kind = 'threat'; title = 'Amenaza contenida, confirmando'; text = 'Se terminó el proceso ' + (lastInc.name || lastInc.pid) + '; esperando que desaparezca.'; ico = icon('incidentes'); }
     $('banner').className = 'banner ' + kind;
     $('bannerTitle').textContent = title; $('bannerText').textContent = text;
     const bi = clear($('bannerIco')), bp = document.createElementNS(SVGNS, 'path');
-    bp.setAttribute('d', icon); bi.appendChild(bp);
+    bp.setAttribute('d', ico); bi.appendChild(bp);
 
     // agent voice: announce each new proposal; attacks get an explicit alert
     Agent.busy = !!s.reasoner_busy;
@@ -496,9 +506,83 @@ const Agent = (() => {
       : ME.auth === 'google' ? 'Solo lectura: tu cuenta tiene el rol de lector; solo los administradores pueden aprobar.'
       : 'Solo lectura. Las acciones de alto impacto se resuelven por la API con el token de aprobador (cabecera X-Approver-Token); esta página no guarda ese token.';
 
+    renderCreds();
+
     // audit log
     const auRows = audit.slice(0, 15).map(e => [String(e.seq), time(e.ts), e.kind, (e.prev_sha256 || '').slice(0, 8)]);
     clear($('audit')).appendChild(table(['#', 'Hora', 'Tipo', 'Hash previo'], auRows, 'Sin entradas de auditoría.'));
+  }
+
+  // Credentials: what Centinela learned per key, its current window and the latest AI analysis.
+  function profileText(p) {
+    if (!p) return 'Sin historial todavía.';
+    const days = p.weekdays.map(d => DAYS[d] || d).join(', ');
+    return [p.days + ' días de historial',
+      'Redes: ' + (p.networks.join(', ') || 'sin datos'),
+      'Horario: ' + (days || 'sin datos') + (p.hours ? ' · ' + p.hours[0] + '–' + p.hours[1] + ' h' : ''),
+      'Endpoints: ' + (p.endpoints.join(', ') || 'sin datos'),
+      'Hora más pesada: ' + Math.round(p.max_hour_bytes / 1024) + ' KB'].join('\n');
+  }
+  function windowText(k) {
+    const w = k.window, g = k.signals;
+    if (!w) return 'Sin actividad reciente.';
+    const dev = [];
+    if (g.new_network) dev.push('red nueva'); else if (g.new_ip) dev.push('IP nueva');
+    if (g.off_hours) dev.push('fuera de su horario');
+    if (g.new_endpoints.length) dev.push('endpoints nuevos: ' + g.new_endpoints.join(', '));
+    if (g.pages >= 5) dev.push(g.pages + ' páginas seguidas');
+    if (g.volume_ratio >= 3) dev.push('volumen ×' + g.volume_ratio + ' sobre su hora más pesada');
+    return [w.requests + ' solicitudes · ' + (DAYS[w.local_time.slice(0, 3)] || '') + w.local_time.slice(3),
+      'Desde: ' + w.ips.join(', '),
+      dev.length ? 'Desviaciones: ' + dev.join('; ') : 'Dentro de lo habitual.'].join('\n');
+  }
+  function analysisText(a) {
+    if (!a) return 'Sin análisis todavía.';
+    const act = !a.action || a.action === 'none' ? 'ninguna acción' : a.action;
+    return (a.rationale || 'sin datos') + '\n' + time(a.at) + ' · ' + act + (a.decision ? ' · ' + a.decision : '');
+  }
+  function renderCreds() {
+    const box = clear($('creds'));
+    if (!KEYS) { box.appendChild(el('p', 'sin datos', 'empty')); return; }
+    const heads = ['Clave', 'Estado', 'Perfil aprendido', 'Ventana actual', 'Último análisis de la IA'];
+    if (ME.can_approve) heads.push('Acción');
+    const rows = KEYS.map(k => {
+      const name = el('span', (k.label || 'clave') + ' · #' + k.key_id, 'mono');
+      const [t, c] = KEY_STATE[k.state] || [k.state, 'b-neutral'];
+      const st = el('span', null, 'acts');
+      st.appendChild(el('span', t, 'badge ' + c));
+      if (k.protected) st.appendChild(el('span', 'protegida', 'badge b-neutral'));
+      const row = [name, st, el('span', profileText(k.profile), 'rat'), el('span', windowText(k), 'rat'),
+        el('span', analysisText(k.analysis), 'rat')];
+      if (ME.can_approve) {
+        if (k.flagged) {
+          const b = el('button', 'Marcar como normal', 'btns'); b.type = 'button'; b.disabled = keyBusy.has(k.key_id);
+          b.addEventListener('click', () => markNormal(k));
+          row.push(b);
+        } else row.push(el('span', '—', 'muted'));
+      }
+      return row;
+    });
+    box.appendChild(table(heads, rows, 'Sin claves de API conocidas.'));
+    box.querySelectorAll('td:nth-child(3), td:nth-child(4), td:nth-child(5)').forEach(td => td.classList.add('wrap'));
+    $('credNote').textContent = ME.can_approve
+      ? 'Marcar como normal enseña a Centinela que esa actividad era legítima: deja de alertar por ese mismo comportamiento. No reactiva una clave revocada.'
+      : 'Solo lectura: marcar una alerta como normal requiere una cuenta que pueda aprobar acciones.';
+  }
+
+  async function markNormal(k) {
+    if (!confirm('¿Marcar la actividad actual de ' + (k.label || 'la clave #' + k.key_id) + ' como normal? Centinela la aprenderá y no volverá a alertar por ese mismo comportamiento. No reactiva la clave si fue revocada.')) return;
+    keyBusy.add(k.key_id); if (STATE) render(STATE);
+    const msg = $('credMsg');
+    try {
+      const r = await fetch('/api/keys/' + k.key_id + '/normal', {
+        method: 'POST', headers: {'X-Requested-With': 'centinela'},
+      });
+      msg.textContent = r.ok ? 'Actividad aprendida como normal.'
+        : r.status === 409 ? 'Esa clave ya no tiene una alerta activa.'
+        : 'No se pudo registrar (HTTP ' + r.status + ').';
+    } catch (e) { msg.textContent = 'No se pudo contactar a Centinela.'; }
+    keyBusy.delete(k.key_id); poll();
   }
 
   function renderUser() {
@@ -586,8 +670,9 @@ const Agent = (() => {
   const getJson = async url => { const r = await fetch(url); if (!r.ok) throw new Error('HTTP ' + r.status); return r.json(); };
 
   async function pollAux() {
-    const [live, stats] = await Promise.allSettled([getJson('/api/live'), getJson('/api/server-stats')]);
+    const [live, stats, keys] = await Promise.allSettled([getJson('/api/live'), getJson('/api/server-stats'), getJson('/api/keys')]);
     LIVE = live.status === 'fulfilled' ? live.value : null;
+    KEYS = keys.status === 'fulfilled' ? keys.value.keys : null;
     STATS = stats.status === 'fulfilled' ? stats.value : null;
     if (STATS && STATS.cpu_percent != null) cpuHist.push(STATS.cpu_percent);
   }

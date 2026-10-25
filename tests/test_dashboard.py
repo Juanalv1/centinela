@@ -22,12 +22,13 @@ def test_dashboard_served(client):
     assert r.status_code == 200
     assert r.headers["content-type"].startswith("text/html")
     assert "Respuesta a incidentes" in r.text and "Política de respuesta" in r.text
+    assert "Credenciales" in r.text and "Marcar como normal" in r.text
 
 
 def test_dashboard_only_fetches_existing_routes(client):
     html = client.get("/dashboard").text
     paths = set(re.findall(r"(?:fetch|getJson)\(\s*['\"](/[^'\"?]*)", html))
-    assert {"/api/state", "/api/live", "/api/server-stats", "/api/me"} <= paths
+    assert {"/api/state", "/api/live", "/api/server-stats", "/api/me", "/api/keys", "/api/keys/"} <= paths
     routes = {r.path for r in client.app.routes}
 
     def exists(p: str) -> bool:  # a trailing slash is a prefix of a parametrised route
