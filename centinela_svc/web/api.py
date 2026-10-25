@@ -57,6 +57,13 @@ def register(router: FastAPI, ctx: AppContext, guards: Guards) -> None:
     def state() -> dict:
         return ctx.monitor.state()
 
+    @router.get("/api/keys")
+    def api_keys(request: Request) -> JSONResponse:
+        """Per-credential profile, state and latest AI analysis (dashboard "Credenciales")."""
+        if settings.auth_configured and guards.session_user(request) is None:
+            return JSONResponse({"error": "unauthorized"}, status_code=401)
+        return JSONResponse({"keys": ctx.monitor.credentials()}, headers={"Cache-Control": "no-store"})
+
     async def start_victim_job() -> tuple[dict, int]:
         """Start the real CPU-burning job on the victim; same effect as attack.py.
 
@@ -183,6 +190,22 @@ def register(router: FastAPI, ctx: AppContext, guards: Guards) -> None:
         """Real shared feed/leaderboard for the big screen."""
         return audience.live()
 
+    def approver(request: Request, token: str | None) -> tuple[str | None, JSONResponse | None]:
+        """Who may act as approver: (actor, None) when allowed, (None, error response) otherwise."""
+        approver_token = settings.approver_token
+        if approver_token and token and hmac.compare_digest(token.encode(), approver_token.encode()):
+            return "approver-token", None
+        if settings.auth_configured:
+            user = guards.session_user(request)
+            if user is None:
+                return None, JSONResponse({"error": "unauthorized"}, status_code=401)
+            if not guards.is_admin(user) or not guards.csrf_ok(request):
+                return None, JSONResponse({"error": "forbidden"}, status_code=403)
+            return user["email"], None
+        if approver_token:  # demo mode: legacy behavior, token only
+            return None, JSONResponse({"error": "unauthorized"}, status_code=401)
+        return "demo", None
+
     @router.get("/api/approvals")
     def approvals() -> list[dict]:
         return ctx.monitor.executor.pending()
@@ -191,20 +214,21 @@ def register(router: FastAPI, ctx: AppContext, guards: Guards) -> None:
     async def resolve_approval(proposal_id: int, req: ApprovalRequest, request: Request,
                                x_approver_token: str | None = Header(default=None)):
         # The panel is public: without this, anyone could approve a high-impact action.
-        token = settings.approver_token
-        token_ok = bool(token and x_approver_token and
-                        hmac.compare_digest(x_approver_token.encode(), token.encode()))
-        if not token_ok:
-            if settings.auth_configured:
-                user = guards.session_user(request)
-                if user is None:
-                    return JSONResponse({"error": "unauthorized"}, status_code=401)
-                if not guards.is_admin(user) or not guards.csrf_ok(request):
-                    return JSONResponse({"error": "forbidden"}, status_code=403)  # viewers and non-members
-            elif token:  # demo mode: legacy behavior, token only
-                return JSONResponse({"error": "unauthorized"}, status_code=401)
+        _, denied = approver(request, x_approver_token)
+        if denied:
+            return denied
         decision = await ctx.monitor.resolve_approval(proposal_id, req.approve)
         if decision is None:
             return JSONResponse({"error": "no pending approval with that id"}, status_code=404)
         return {"decision": decision}
 
+    @router.post("/api/keys/{key_id}/normal")
+    def mark_key_normal(key_id: int, request: Request, x_approver_token: str | None = Header(default=None)):
+        """Owner feedback: this key's flagged window was normal use. Learned and audited; never un-revokes."""
+        actor, denied = approver(request, x_approver_token)
+        if denied:
+            return denied
+        result = ctx.monitor.mark_normal(key_id, actor)
+        if result is None:
+            return JSONResponse({"error": "key is not flagged"}, status_code=409)
+        return {"feedback": result}
