@@ -1,0 +1,22 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 380 96" role="img" aria-labelledby="title">
+  <title id="title">Centinela</title>
+  <style>
+    @import url('https://fonts.googleapis.com/css2?family=Urbanist:wght@800&amp;display=swap');
+    .word { font-family: Urbanist, 'Segoe UI', sans-serif; font-weight: 800; font-size: 44px; letter-spacing: -1px; fill: #f2f2f2; }
+  </style>
+  <rect width="380" height="96" rx="12" fill="#111010"/>
+  <defs>
+    <clipPath id="body">
+      <path d="M46 48 L84 26 A44 44 0 1 0 84 70 Z"/>
+    </clipPath>
+  </defs>
+  <!-- Threat about to be eaten -->
+  <circle cx="80" cy="48" r="7" fill="#e53aa3"/>
+  <!-- Pac-Man radar -->
+  <g clip-path="url(#body)">
+    <circle cx="46" cy="48" r="38" fill="#ffdd00"/>
+    <circle cx="46" cy="48" r="26" fill="none" stroke="#111010" stroke-width="5" opacity=".2"/>
+    <circle cx="46" cy="48" r="13" fill="none" stroke="#111010" stroke-width="5" opacity=".2"/>
+  </g>
+  <text class="word" x="108" y="63">centinela</text>
+</svg>
