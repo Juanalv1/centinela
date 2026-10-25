@@ -39,6 +39,12 @@ CONFIDENCE_LEVELS = ("low", "medium", "high")
 _ids = itertools.count(1)
 
 
+def seed_ids(max_seen: int) -> None:
+    """Continue proposal ids after `max_seen` (ids already in the audit log); never goes backwards."""
+    global _ids
+    _ids = itertools.count(max(next(_ids), max_seen + 1))
+
+
 @dataclass
 class Target:
     type: str

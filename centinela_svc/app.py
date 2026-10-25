@@ -15,7 +15,7 @@ from pydantic import BaseModel
 from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse, Response
 from urllib.parse import urlencode, urlparse
 
-from audience import AudienceState, RateLimited, normalize_handle
+from audience import AudienceState, AudienceStore, RateLimited, normalize_handle
 from audit import AuditLog
 from domain import Proposal, Target
 from executor import Executor, VictimClient, VictimDb
@@ -34,6 +34,7 @@ AUDIT_DATABASE_URL = os.environ.get("AUDIT_DATABASE_URL")  # Postgres; falls bac
 EXECUTOR_DATABASE_URL = os.environ.get("EXECUTOR_DATABASE_URL")  # least-privilege role, case-2 actions
 OFFICE_CIDR = os.environ.get("OFFICE_CIDR", "203.0.113.0/24")  # never blocked
 APPROVER_TOKEN = os.environ.get("APPROVER_TOKEN", "")  # when set, required to resolve approvals
+RESTORE_ENTRIES = 2000  # audit tail replayed at startup to refill the dashboard history
 TTS_VOICE = os.environ.get("TTS_VOICE", "es-CL-CatalinaNeural")  # Edge neural voice
 
 # Google login (single shared demo org). Auth is "configured" only when all three
@@ -71,6 +72,13 @@ async def lifespan(_app: FastAPI):
                             db=VictimDb(EXECUTOR_DATABASE_URL) if EXECUTOR_DATABASE_URL else None,
                             protected_networks=(OFFICE_CIDR,))
         monitor = Monitor(VICTIM_URL, POLL_SECONDS, reasoner, executor, http)
+        try:  # a broken history must never keep the service from starting
+            monitor.restore(audit.recent(RESTORE_ENTRIES))
+            if AUDIT_DATABASE_URL:  # audience history needs the database; JSONL mode stays in memory
+                audience.store = AudienceStore(AUDIT_DATABASE_URL)
+                audience.restore()
+        except Exception:
+            logging.getLogger("centinela").exception("history restore failed; starting empty")
         task = asyncio.create_task(monitor.run())
         audit.append("startup", {"victim_url": VICTIM_URL, "model": MODEL, "poll_s": POLL_SECONDS})
         try:

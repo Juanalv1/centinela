@@ -135,6 +135,17 @@ class AuditLog:
             del self.entries[:-self.keep]
             return entry
 
+    def recent(self, n: int) -> list[dict]:
+        """The last `n` entries re-read from storage, oldest first (used to rebuild state on startup)."""
+        if self._conn is not None:
+            rows = self._conn.execute(
+                "SELECT line FROM (SELECT seq, line FROM audit_log ORDER BY seq DESC LIMIT %s) t ORDER BY seq",
+                (n,)).fetchall()
+            return [json.loads(r[0]) for r in rows]
+        if not self.path.exists():
+            return []
+        return [json.loads(line) for line in self.path.read_text(encoding="utf-8").splitlines()[-n:]]
+
     def verify(self) -> tuple[bool, int | None]:
         """Re-read the whole log from storage and check the hash chain."""
         if self._conn is not None:

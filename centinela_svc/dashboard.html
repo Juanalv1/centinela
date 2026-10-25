@@ -279,6 +279,7 @@ const Agent = (() => {
     auto: ['automático', 'b-auto'], approval: ['aprobación humana', 'b-human'],
     rejected: ['rechazado', 'b-bad'], failed: ['falló', 'b-bad'],
     recommend: ['solo recomendación', 'b-neutral'],
+    expired: ['expirada', 'b-neutral'],
   };
 
   function el(tag, text, cls) {
@@ -322,6 +323,7 @@ const Agent = (() => {
     if (dec.status === 'rejected') return 'rejected';
     if (dec.status === 'failed') return 'failed';
     if (dec.status === 'recommended') return 'recommend';
+    if (dec.status === 'expired') return 'expired';
     if (dec.status === 'pending_approval' || approvedIds.has(dec.proposal_id)) return 'approval';
     return 'auto';
   }
