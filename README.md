@@ -85,6 +85,12 @@ LAB_TOKEN=... ANA_KEY=... LUIS_KEY=... python credential_trials.py \
 
 Run it from an ip in `LAB_KNOWN_IPS`. It runs 5 normal uses of luis's key (expected: no `revoke_key`) and 5 slow paginated exports with ana's key (expected: `revoke_key`), calling `POST /lab/reset` (`X-Lab-Token`, only when `LAB_TOKEN` is set) between runs.
 
+To run just the attack against any installation you own (slow paginated export that stops itself when the key is revoked, one line per request):
+
+```sh
+ANA_KEY=<leaked key> python stolen_key_attack.py --victim https://<victim> --pages 30 --delay 4
+```
+
 ## Case 2: leaked API key on a small company's API (control layer)
 
 The victim also runs a small company's API on Postgres (enabled by `DATABASE_URL`): users, API keys, sessions and an HTTP access log that stores the User-Agent (attacker-controlled text). See `victim/pyme.py` and `victim/schema.sql`.
