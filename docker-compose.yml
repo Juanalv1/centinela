@@ -1,0 +1,26 @@
+# Local demo stack: victim + centinela (case 1 only, no Postgres).
+# Usage:
+#   export ANTHROPIC_API_KEY=sk-...        # or put it in ../.env
+#   docker compose up --build
+# Then open http://localhost:8001/ (the demo) and click "Lanzar minero".
+services:
+  victim:
+    build: ./victim
+    environment:
+      EXECUTOR_TOKEN: devtoken
+      JOB_MAX_SECONDS: "120"
+    ports:
+      - "8000:8000"
+
+  centinela:
+    build: ./centinela_svc
+    depends_on:
+      - victim
+    environment:
+      VICTIM_URL: http://victim:8000
+      EXECUTOR_TOKEN: devtoken
+      POLL_SECONDS: "2"
+      MODEL: claude-sonnet-5-5
+      ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:-}
+    ports:
+      - "8001:8000"
