@@ -5,7 +5,7 @@
 # Then open http://localhost:8001/ (the demo) and click "Lanzar minero".
 services:
   victim:
-    build: ./victim
+    build: ./lab/victim
     environment:
       EXECUTOR_TOKEN: devtoken
       JOB_MAX_SECONDS: "120"

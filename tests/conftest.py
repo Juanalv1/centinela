@@ -8,7 +8,7 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
 SVC = ROOT / "centinela_svc"
-VICTIM = ROOT / "victim"
+VICTIM = ROOT / "lab" / "victim"
 
 sys.path.insert(0, str(SVC))
 sys.path.insert(1, str(VICTIM))

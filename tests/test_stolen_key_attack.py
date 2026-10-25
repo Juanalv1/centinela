@@ -8,7 +8,7 @@ import pytest
 
 from conftest import ROOT, load_module
 
-attack = load_module("stolen_key_attack", ROOT / "stolen_key_attack.py")
+attack = load_module("stolen_key_attack", ROOT / "lab" / "attack" / "stolen_key_attack.py")
 
 
 class _Victim(http.server.BaseHTTPRequestHandler):

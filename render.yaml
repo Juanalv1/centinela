@@ -2,7 +2,7 @@ services:
   - type: web
     name: centinela-victim
     runtime: docker
-    rootDir: victim
+    rootDir: lab/victim
     dockerfilePath: ./Dockerfile
     plan: starter
     region: oregon

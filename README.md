@@ -15,12 +15,28 @@ AI-assisted incident response for small teams without a 24/7 SOC — designed so
 
 Hackathon project — Platanus Hack 26 Caracas, AI Security track. Work in progress.
 
+## Repository layout
+
+The repo separates **the product** from **the simulated world it defends**:
+
+```
+centinela_svc/   ← THE PRODUCT: the defensive service (domain → application → adapters → web)
+lab/             ← the simulated world, used only to exercise and demo the defense
+  victim/        ← the "company server" we protect (the target); deliberately a plain app
+  attack/        ← attacker-side tooling (attack.py, stolen_key_attack.py, *_trials.py, forward_nginx.py)
+docs/            ← demo script, integration guide, jury Q&A, evals
+tests/           ← test suite for both services
+```
+
+`centinela_svc/` is the architecture that matters; `lab/victim/` is intentionally flat
+because it is scenery, not the deliverable.
+
 ## Feasibility prototype
 
 One end-to-end case: a CPU-burning job on a "company server" is detected by Claude, proposed as `kill_process`, validated by a deterministic executor and killed.
 
 ```
-attack.py ──POST /jobs──▶ victim (FastAPI, runs as user `app`)
+lab/attack/attack.py ──POST /jobs──▶ victim (FastAPI, runs as user `app`)
                             ├─ db-sim (protected, runs as root)
                             └─ report.py (harmless CPU loop, fake `--pool stratum+tcp://...` argv)
 centinela ──GET /metrics (every 2 s)──▶ victim
@@ -38,7 +54,7 @@ Defense in depth: the model can only propose; the executor rejects anything off-
 ### Run locally with Docker
 
 ```sh
-docker build -t centinela-victim victim
+docker build -t centinela-victim lab/victim
 docker build -t centinela-svc centinela_svc
 docker network create centinela-net
 export EXECUTOR_TOKEN=$(python -c "import secrets;print(secrets.token_hex(16))")
@@ -53,7 +69,7 @@ Open http://localhost:18080 for the panel. Optional env: `MODEL` (default `claud
 ### Run the attack
 
 ```sh
-python attack.py --target http://localhost:18000
+python lab/attack/attack.py --target http://localhost:18000
 ```
 
 The job is a pure arithmetic loop (no networking, stops itself after 10 minutes, at most one at a time). Within a few seconds the panel shows the proposal, the executor decision and the detection/containment times. The "Simular IA comprometida" button sends a forged proposal targeting `db-sim` to show the executor's rejection.
@@ -67,7 +83,7 @@ The job is a pure arithmetic loop (no networking, stops itself after 10 minutes,
 Two harmless jobs differ only in behavior: `sync` burns CPU and keeps a keep-alive connection to `SYNC_ENDPOINT` (a host we control) without writing to disk; `backup` burns CPU compressing data and writes real files (≤ 2 MB/s, three rotating 8 MB files) with no sockets. Neither carries a pool string.
 
 ```sh
-EXECUTOR_TOKEN=... python behavior_trials.py --victim https://<victim> --centinela https://<centinela> --runs 5
+EXECUTOR_TOKEN=... python lab/attack/behavior_trials.py --victim https://<victim> --centinela https://<centinela> --runs 5
 ```
 
 The script starts each job N times and records whether the AI proposed `kill_process` for it (expected: every `sync`, no `backup`). Each process also carries `quota_percent` (its share of the container's own CPU budget, `cpu_quota_cores` from cgroup v2; per-core `cpu_percent` on a shared 16-core host understates it) and, in Centinela, `cpu_sustained_s` (seconds above half that budget).
@@ -79,7 +95,7 @@ The access log records response `bytes`, the `query` string and a `lab_seed` mar
 Centinela reads `/access-log` incrementally and keeps a deterministic profile per key (`centinela_svc/keywatch.py`). The last `KEY_WINDOW_SECONDS` (default 600) are compared against it: new ip/network, outside the key's usual days and hours, endpoints it never used, pages and volume against its busiest past hour. A key is flagged only when two or more independent deviations combine; flagged windows are never learned. Flagged keys wake the reasoner, which may propose `revoke_key`. Timezone for "usual hours": `LAB_TZ_OFFSET_HOURS` (default -4, Caracas).
 
 ```sh
-LAB_TOKEN=... ANA_KEY=... LUIS_KEY=... python credential_trials.py \
+LAB_TOKEN=... ANA_KEY=... LUIS_KEY=... python lab/attack/credential_trials.py \
     --victim https://<victim> --centinela https://<centinela> --key-window 120
 ```
 

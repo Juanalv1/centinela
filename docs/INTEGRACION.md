@@ -70,7 +70,7 @@ Respuesta `200`: `{"received": 1, "new": 1}`. `new` cuenta solo lo que no se hab
 - `422`: un evento inválido rechaza el lote completo (`{"error": "key_id: ...", "index": 1}`); `source` debe usar letras, dígitos, `.`, `_` o `-`, y `victim` está reservado para el adaptador del demo;
 - `400`: el cuerpo no es JSON.
 
-**Reenviador de nginx (`forward_nginx.py`, solo biblioteca estándar).** La app indica qué credencial usó cada petición con una cabecera de respuesta (`X-Centinela-Key-Id`, solo el id) que nginx registra y oculta al cliente:
+**Reenviador de nginx (`lab/attack/forward_nginx.py`, solo biblioteca estándar).** La app indica qué credencial usó cada petición con una cabecera de respuesta (`X-Centinela-Key-Id`, solo el id) que nginx registra y oculta al cliente:
 
 ```nginx
 log_format centinela escape=json '{"request_id":"$request_id","msec":"$msec",'
@@ -83,7 +83,7 @@ proxy_hide_header X-Centinela-Key-Label;
 ```
 
 ```sh
-CENTINELA_INGEST_TOKEN=... python forward_nginx.py --log /var/log/nginx/centinela.json \
+CENTINELA_INGEST_TOKEN=... python lab/attack/forward_nginx.py --log /var/log/nginx/centinela.json \
   --url https://centinela.example.com --source nginx-edge --state /var/lib/centinela/offset --follow
 ```
 

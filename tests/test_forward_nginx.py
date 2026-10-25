@@ -8,7 +8,7 @@ from test_ingest import AUTH, ingest_client  # noqa: F401 (fixture)
 from test_monitor_keys import NOW as VICTIM_NOW
 from test_monitor_keys import ATTACK, Victim, _history, _run
 
-fwd = load_module("forward_nginx", ROOT / "forward_nginx.py")
+fwd = load_module("forward_nginx", ROOT / "lab" / "attack" / "forward_nginx.py")
 
 
 def nginx_line(row: dict, **extra) -> str:
