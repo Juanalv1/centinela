@@ -23,7 +23,7 @@ Product first, demo follows: a customer would use this view daily; the demo's "t
 
 ## Tasks
 - [x] C1: backend profile + state exposure (keywatch/monitor/app) with tests. Route: delegated (2+ non-trivial files). Done (58dcdf0): `KeyWatch.overview`, `Monitor.credentials` (state active/suspicious/revoked, latest AI analysis per key), `GET /api/keys`; `tests/test_credentials_view.py`.
-- [ ] C2: "mark as normal" feedback endpoint + baseline learning + audit entry, with tests. Route: delegated.
+- [x] C2: "mark as normal" feedback endpoint + baseline learning + audit entry, with tests. Route: delegated. Done (4a14d69): `POST /api/keys/{id}/normal` (same auth as approvals via shared `_approver`; 409 when not flagged), `KeyWatch.learn_window`/`learn` (dedup by entry id), `key_feedback` audit entry written before learning and replayed on restart; never touches key status.
 - [ ] C3: "Credenciales" section in the dashboard wired to C1/C2. Route: delegated.
 
 ## Acceptance
