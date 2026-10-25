@@ -52,7 +52,7 @@ APPROVER_TOKEN = os.environ.get("APPROVER_TOKEN", "")  # when set, required to r
 RESTORE_ENTRIES = 2000  # audit tail replayed at startup to refill the dashboard history
 TTS_VOICE = os.environ.get("TTS_VOICE", "es-CL-CatalinaNeural")  # Edge neural voice (fallback)
 ELEVEN_LABS_API_KEY = os.environ.get("ELEVEN_LABS_API_KEY", "")  # when set, ElevenLabs is the primary voice
-ELEVEN_LABS_VOICE_ID = os.environ.get("ELEVEN_LABS_VOICE_ID", "21m00Tcm4TlvDq8ikWAM")
+ELEVEN_LABS_VOICE_ID = os.environ.get("ELEVEN_LABS_VOICE_ID", "6Gr4AVmTax1pMJO0lHRK")  # Catalina, Chilean
 ELEVEN_LABS_MODEL = os.environ.get("ELEVEN_LABS_MODEL", "eleven_flash_v2_5")
 
 # Google login (single shared demo org). Auth is "configured" only when all three
