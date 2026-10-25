@@ -1,8 +1,8 @@
 """behavioral-signals T2: baseline annotation in the monitor and behavior in the reasoner snapshot."""
 from conftest import SVC, load_module
 
-monitor_mod = load_module("centinela_monitor_behavior", SVC / "monitor.py")
-reasoner = load_module("centinela_reasoner_behavior", SVC / "reasoner.py")
+monitor_mod = load_module("centinela_monitor_behavior", SVC / "application" / "monitor.py")
+reasoner = load_module("centinela_reasoner_behavior", SVC / "adapters" / "reasoner.py")
 
 
 def _p(pid, name, cmdline, **extra):

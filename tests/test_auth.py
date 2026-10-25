@@ -26,7 +26,7 @@ def make(monkeypatch, tmp_path):
         monkeypatch.setenv("VICTIM_URL", "http://127.0.0.1:9")
         for k, v in {**(AUTH_ENV if auth else {}), **env}.items():
             monkeypatch.setenv(k, v)
-        mod = load_module("centinela_app_auth", SVC / "app.py")
+        mod = load_module("centinela_app_auth", SVC / "web" / "app.py")
         c = TestClient(mod.app, follow_redirects=False, base_url=PUBLIC if auth else "http://testserver")
         c.__enter__()
         clients.append(c)
@@ -45,7 +45,7 @@ def google_mock(mod, email="boss@example.com", verified=True, token_ok=True):
             return httpx.Response(200, json={"email": email, "email_verified": verified,
                                              "name": "Ana Boss", "picture": "https://img/p.png"})
         return httpx.Response(404)
-    mod._google_transport = httpx.MockTransport(handler)
+    mod.app.state.ctx.google_transport = httpx.MockTransport(handler)
 
 
 def login(mod, client, **kw):
@@ -59,7 +59,7 @@ def login(mod, client, **kw):
 
 def test_server_stats_success(make):
     mod, c = make(auth=False)
-    mod.monitor.http = httpx.AsyncClient(transport=httpx.MockTransport(
+    mod.app.state.ctx.monitor.http = httpx.AsyncClient(transport=httpx.MockTransport(
         lambda req: httpx.Response(200, json={"cpu_percent": 42.5, "mem_percent": 10, "extra": "x"})))
     r = c.get("/api/server-stats")
     assert r.status_code == 200 and r.json() == {"cpu_percent": 42.5, "mem_percent": 10}
@@ -70,7 +70,7 @@ def test_server_stats_victim_failure_is_502_with_nulls(make):
 
     def boom(req):
         raise httpx.ConnectError("down")
-    mod.monitor.http = httpx.AsyncClient(transport=httpx.MockTransport(boom))
+    mod.app.state.ctx.monitor.http = httpx.AsyncClient(transport=httpx.MockTransport(boom))
     r = c.get("/api/server-stats")
     body = r.json()
     assert r.status_code == 502
@@ -79,7 +79,7 @@ def test_server_stats_victim_failure_is_502_with_nulls(make):
 
 def test_server_stats_ignores_non_numeric_values(make):
     mod, c = make(auth=False)
-    mod.monitor.http = httpx.AsyncClient(transport=httpx.MockTransport(
+    mod.app.state.ctx.monitor.http = httpx.AsyncClient(transport=httpx.MockTransport(
         lambda req: httpx.Response(200, json={"cpu_percent": None, "mem_percent": "boom"})))
     assert c.get("/api/server-stats").json() == {"cpu_percent": None, "mem_percent": None}
 

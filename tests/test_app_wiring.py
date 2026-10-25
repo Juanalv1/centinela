@@ -15,7 +15,7 @@ def make_client(monkeypatch, tmp_path):
             monkeypatch.delenv("APPROVER_TOKEN", raising=False)
         else:
             monkeypatch.setenv("APPROVER_TOKEN", token)
-        mod = load_module("centinela_app_wiring", SVC / "app.py")
+        mod = load_module("centinela_app_wiring", SVC / "web" / "app.py")
         return TestClient(mod.app)
     return make
 

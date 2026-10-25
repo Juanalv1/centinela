@@ -12,7 +12,7 @@ def client(monkeypatch, tmp_path):
     monkeypatch.setenv("AUDIT_PATH", str(tmp_path / "audit.jsonl"))
     monkeypatch.setenv("VICTIM_URL", "http://127.0.0.1:9")  # unreachable; monitor just records errors
     monkeypatch.delenv("ANTHROPIC_API_KEY", raising=False)
-    mod = load_module("centinela_app_dashboard", SVC / "app.py")
+    mod = load_module("centinela_app_dashboard", SVC / "web" / "app.py")
     with TestClient(mod.app) as c:
         yield c
 

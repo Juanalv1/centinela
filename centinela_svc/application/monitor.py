@@ -10,11 +10,11 @@ import os
 
 import httpx
 
-from domain import Decision, Proposal, Target, seed_ids
-from executor import Executor
-from history import replay
-from keywatch import KeyWatch
-from reasoner import ClaudeReasoner
+from application.executor import Executor
+from application.ports import ReasonerPort
+from domain.history import replay
+from domain.keywatch import KeyWatch
+from domain.model import Decision, Proposal, Target, seed_ids
 
 log = logging.getLogger("centinela.monitor")
 HEARTBEAT_S = 30.0
@@ -81,7 +81,7 @@ class Baseline:
 
 
 class Monitor:
-    def __init__(self, victim_url: str, poll_s: float, reasoner: ClaudeReasoner,
+    def __init__(self, victim_url: str, poll_s: float, reasoner: ReasonerPort,
                  executor: Executor, http: httpx.AsyncClient) -> None:
         self.victim_url = victim_url.rstrip("/")
         self.poll_s = poll_s

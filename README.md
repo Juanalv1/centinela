@@ -120,7 +120,7 @@ Victim env: `TRUSTED_PROXY_HOPS` (default `0`: ignore `X-Forwarded-For`; `2` on 
 
 ```sh
 uv venv -p 3.12 .venv && uv pip install -p .venv/bin/python -r centinela_svc/requirements.txt -r victim/requirements.txt pgserver pytest
-PGSERVER_DATA=$(mktemp -d) .venv/bin/python -m pytest -q tests centinela_svc
+PGSERVER_DATA=$(mktemp -d) .venv/bin/python -m pytest -q tests
 ```
 
 `pgserver` starts a real embedded PostgreSQL, so the grants and triggers are tested for real (no Docker needed).

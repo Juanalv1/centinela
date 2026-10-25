@@ -3,9 +3,9 @@ import asyncio
 
 import pytest
 
-from audit import AuditLog
-from domain import MENU, Lane, Proposal, Target
-from executor import Executor
+from adapters.audit import AuditLog
+from domain.model import MENU, Lane, Proposal, Target
+from application.executor import Executor
 
 JOB_PID = 4242
 DB_PID = 7

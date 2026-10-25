@@ -10,7 +10,7 @@ import time
 
 import anthropic
 
-from domain import CONFIDENCE_LEVELS, MENU, NO_ACTION, RECOMMEND_ACTION, Proposal, Target
+from domain.model import CONFIDENCE_LEVELS, MENU, NO_ACTION, RECOMMEND_ACTION, Proposal, Target
 
 ACTIONS = [*MENU, NO_ACTION, RECOMMEND_ACTION]
 TARGET_TYPES = sorted({spec.target_type for spec in MENU.values()})
