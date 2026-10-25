@@ -53,10 +53,17 @@ De forma gradual: período de aprendizaje, luego solo recomendaciones, luego mod
 ## Números
 
 **¿Qué tan rápido responde?**
-Contención en 5-7 s medida en la nube para el caso de procesos. *(Verificado.)* Para el caso de credenciales: *pendiente de la prueba A3.*
+- Credencial robada: detectada y revocada en 9-38 s en la nube. *(Verificado, A3.)* Ya se corrigió la espera que causaba los 38 s, pero falta medirlo de nuevo.
+- Minero oculto: detectado en 28-30 s. *(Verificado, T3.)*
+- Proceso con señales obvias: contención en 5-7 s. *(Verificado.)*
 
 **¿Detecta ataques sofisticados?**
-*Pendiente.* Medición base: sin señales obvias, la versión anterior no contenía nada (0/9) y no tuvo falsos positivos (0/27). La telemetría de comportamiento está en curso; solo se afirma si A3 pasa (5/5 detectados, 0 falsos positivos). Ver `docs/evals/process-detection-baseline.md`.
+Sí, en nuestras pruebas en la nube, sin señales obvias. Son 5 corridas de cada caso:
+- Credencial robada (patrón Snowflake): 5/5 revocadas y 0/5 falsos positivos con la clave legítima.
+- Minero sin nombre sospechoso: 5/5 detectados y 0/5 falsos positivos con un backup legítimo de alto uso de CPU.
+- Antes de agregar la telemetría de comportamiento, la detección sin señales obvias daba 0/9.
+
+Ver `odd/tasks/behavioral-signals.md` y `docs/evals/process-detection-baseline.md`. No decir "100 %": son 5 corridas por caso.
 
 **¿Cuánto cuesta?**
 *No medido.* No dar cifras. Si preguntan: la infraestructura son servicios pequeños y el costo principal son las llamadas al modelo, que se pueden reducir con la línea base como filtro.
