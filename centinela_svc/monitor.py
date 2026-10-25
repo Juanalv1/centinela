@@ -118,7 +118,8 @@ class Monitor:
         """Refill the dashboard history from audit entries after a restart.
 
         Not restored: pending approvals (their pids are gone: shown as expired and
-        audited as such), CPU samples, the baseline and the key watch.
+        audited as such), CPU samples, the baseline and the key watch, except the
+        windows the owner marked as normal (re-learned from their audit entries).
         """
         past = replay(entries)
         seed_ids(past["max_id"])
@@ -132,6 +133,10 @@ class Monitor:
             self.executor.audit.append("decision", expired.to_dict())
             self.decisions.appendleft(expired.to_dict())
         self.incidents = past["incidents"]
+        for entry in entries:
+            data = entry.get("data")
+            if entry.get("kind") == "key_feedback" and isinstance(data, dict):
+                self.keywatch.learn(data["key_id"], data.get("entries") or [])
 
     async def run(self) -> None:
         while True:
@@ -306,6 +311,27 @@ class Monitor:
             out.append({**row, "label": meta.get("label"), "protected": meta.get("protected"),
                         "state": state, "analysis": self._key_analysis(key)})
         return out
+
+    def mark_normal(self, key: int, by: str) -> dict | None:
+        """Owner feedback: the key's flagged window was normal use, so learn it.
+
+        Audited first (fails closed: nothing is learned if the write does not land).
+        Never un-revokes: the key's status belongs to the executor and to humans.
+        Returns None when the key has no flagged window right now.
+        """
+        victim_now = time.time() - self.clock_offset
+        row = next((r for r in self.keywatch.overview(victim_now) if r["key_id"] == key), None)
+        if row is None or not row["flagged"]:
+            return None
+        window = self.keywatch.recent.get(key, [])
+        self.executor.audit.append("key_feedback", {
+            "key_id": key, "label": self._keys.get(key, {}).get("label"), "by": by,
+            "score": row["score"], "signals": row["signals"],
+            "entries": [{k: e.get(k) for k in ("id", "ts", "ip", "path", "bytes")} for e in window],
+        })
+        learned = self.keywatch.learn_window(key, victim_now)
+        self.key_activity = [f for f in self.key_activity if f["key_id"] != key]
+        return {"key_id": key, "learned": len(learned)}
 
     def _key_analysis(self, key: int) -> dict | None:
         """Newest proposal that targeted this key or was made while it was flagged."""

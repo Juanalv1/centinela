@@ -142,3 +142,128 @@ def test_api_keys_serves_the_monitor_credentials(app_mod):
         r = client.get("/api/keys")
         assert r.status_code == 200 and r.headers["cache-control"] == "no-store"
         assert r.json() == {"keys": [{"key_id": 2, "label": "ana-integration", "state": "active"}]}
+
+
+# --- C2: "mark as normal" feedback -------------------------------------------
+
+def test_a_window_marked_normal_is_learned_and_the_same_behavior_no_longer_flags():
+    w = watch_with(office_history())
+    w.ingest(_attack(), now=NOW.timestamp())
+    assert w.evaluate(NOW.timestamp())
+    learned = w.learn_window(2, NOW.timestamp())
+    assert len(learned) == 20
+    later = NOW + timedelta(days=7)  # same export, same network, same time next week
+    w.ingest(_attack(at=later), now=later.timestamp())
+    assert w.evaluate(later.timestamp()) == []
+    assert "/api/customers" in w.overview(later.timestamp())[0]["profile"]["endpoints"]
+
+
+def test_learning_the_same_entries_twice_counts_them_once():
+    w = watch_with(office_history())
+    attack = _attack()
+    w.learn(2, attack)
+    busiest = w.profiles[2].summary(NOW.timestamp())["max_hour_bytes"]
+    w.learn(2, attack)  # e.g. replayed from the audit log, then re-read from the access log
+    assert w.profiles[2].summary(NOW.timestamp())["max_hour_bytes"] == busiest
+
+
+class AuditExecutor(FakeExecutor):
+    def __init__(self):
+        self.appended = []
+        outer = self
+
+        class audit:
+            entries: list = []
+
+            @staticmethod
+            def append(kind, data):
+                outer.appended.append((kind, data))
+                return {"kind": kind, "data": data}
+
+        self.audit = audit
+
+
+async def _monitor_with(victim, executor, ticks=1):
+    async with httpx.AsyncClient(transport=httpx.MockTransport(victim)) as http:
+        mon = monitor_mod.Monitor("http://victim", 2, KeyReasoner(), executor, http)
+        mon._last_reason_at = float("inf")
+        for _ in range(ticks):
+            await mon.tick()
+            for _ in range(3):
+                await asyncio.sleep(0)
+        return mon
+
+
+def test_mark_normal_learns_the_window_and_audits_it_without_touching_the_key():
+    executor, victim = AuditExecutor(), Victim(_history() + ATTACK)
+    mon = asyncio.run(_monitor_with(victim, executor))
+    calls = list(victim.calls)
+    result = mon.mark_normal(2, "owner@example.com")
+    assert result == {"key_id": 2, "learned": 20}
+    [(kind, data)] = [a for a in executor.appended if a[0] == "key_feedback"]
+    assert data["key_id"] == 2 and data["by"] == "owner@example.com" and len(data["entries"]) == 20
+    assert set(data["entries"][0]) == {"id", "ts", "ip", "path", "bytes"}
+    assert victim.calls == calls  # nothing sent to the victim: revocation is never undone here
+    row = _by_id(mon.credentials())[2]
+    assert row["flagged"] is False and row["state"] == "active"
+    assert mon.state()["key_activity"] == []
+
+
+def test_mark_normal_refuses_a_key_that_is_not_flagged():
+    executor = AuditExecutor()
+    mon = asyncio.run(_monitor_with(Victim(_history()), executor))
+    assert mon.mark_normal(2, "owner@example.com") is None
+    assert mon.mark_normal(99, "owner@example.com") is None
+    assert not [a for a in executor.appended if a[0] == "key_feedback"]
+
+
+def test_feedback_survives_a_restart_through_the_audit_log():
+    executor = AuditExecutor()
+    mon = asyncio.run(_monitor_with(Victim(_history() + ATTACK), executor))
+    mon.mark_normal(2, "owner@example.com")
+    audit = [{"seq": i, "kind": k, "data": d} for i, (k, d) in enumerate(executor.appended, 1)]
+
+    async def restarted():
+        again = [dict(e, id=e["id"] + 1000, ts=e["ts"] + 60) for e in ATTACK]
+        async with httpx.AsyncClient(transport=httpx.MockTransport(Victim(_history() + again))) as http:
+            fresh = monitor_mod.Monitor("http://victim", 2, KeyReasoner(), AuditExecutor(), http)
+            fresh._last_reason_at = float("inf")
+            fresh.restore(audit)
+            await fresh.tick()
+            return fresh
+
+    assert asyncio.run(restarted()).state()["key_activity"] == []
+
+
+@pytest.fixture()
+def feedback_client(monkeypatch, tmp_path):
+    def make(token):
+        monkeypatch.setenv("AUDIT_PATH", str(tmp_path / "audit.jsonl"))
+        monkeypatch.setenv("VICTIM_URL", "http://127.0.0.1:9")
+        monkeypatch.delenv("ANTHROPIC_API_KEY", raising=False)
+        if token is None:
+            monkeypatch.delenv("APPROVER_TOKEN", raising=False)
+        else:
+            monkeypatch.setenv("APPROVER_TOKEN", token)
+        mod = load_module("centinela_app_feedback", SVC / "app.py")
+        return mod, TestClient(mod.app)
+    return make
+
+
+def test_feedback_endpoint_requires_the_approver_token_when_configured(feedback_client):
+    mod, client = feedback_client("human-secret")
+    with client:
+        seen = []
+        mod.monitor.mark_normal = lambda key, by: seen.append((key, by)) or {"key_id": key, "learned": 3}
+        assert client.post("/api/keys/2/normal").status_code == 401
+        assert client.post("/api/keys/2/normal", headers={"X-Approver-Token": "nope"}).status_code == 401
+        r = client.post("/api/keys/2/normal", headers={"X-Approver-Token": "human-secret"})
+        assert r.status_code == 200 and r.json() == {"feedback": {"key_id": 2, "learned": 3}}
+        assert seen == [(2, "approver-token")]
+
+
+def test_feedback_endpoint_reports_a_key_that_is_not_flagged(feedback_client):
+    _, client = feedback_client(None)
+    with client:
+        r = client.post("/api/keys/2/normal")
+        assert r.status_code == 409 and r.json() == {"error": "key is not flagged"}

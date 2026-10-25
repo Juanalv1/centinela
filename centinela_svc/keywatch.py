@@ -8,7 +8,8 @@ when several independent deviations combine, never on one alone (a known user
 on a new network is not an incident). Only activity older than `learn_after_s`
 (default one day) is learned: anything more recent is judged, never learned, so
 neither an attack ageing out of the window nor a restart re-reading the whole
-log can turn today's misuse into "normal".
+log can turn today's misuse into "normal". The one exception is the owner's
+feedback: a flagged window marked as normal is learned at once (`learn_window`).
 """
 from __future__ import annotations
 
@@ -38,8 +39,13 @@ class _Profile:
         self.endpoints: set[str] = set()
         self.hour_bytes: dict[tuple, int] = defaultdict(int)
         self.first_ts: float | None = None
+        self.seen: set[int] = set()  # entry ids already learned (feedback may be learned twice)
 
     def add(self, e: dict, local: datetime) -> None:
+        if e.get("id") is not None:
+            if e["id"] in self.seen:
+                return
+            self.seen.add(e["id"])
         self.ips.add(e["ip"])
         self.networks.add(_network(e["ip"]))
         self.slots.add((local.weekday(), local.hour))
@@ -92,6 +98,19 @@ class KeyWatch:
             # between the two: too recent to learn, too old to judge
 
 
+
+    def learn(self, key: int, entries: list[dict]) -> None:
+        """Add entries to a key's profile as normal use (owner feedback, or its replay after a restart)."""
+        for e in entries:
+            self.profiles[key].add(e, self._local(e["ts"]))
+
+    def learn_window(self, key: int, now: float) -> list[dict]:
+        """The owner says this key's current window was normal: learn it and return what was learned.
+        Only what the key did changes; whether the key is revoked is not decided here."""
+        self._age(now)
+        window = self.recent.pop(key, [])
+        self.learn(key, window)
+        return window
 
     def _age(self, now: float) -> None:
         """Drop entries that left the window. They are not learned now; a later restart
