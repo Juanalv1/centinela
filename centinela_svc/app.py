@@ -278,6 +278,14 @@ def state() -> dict:
     return monitor.state()
 
 
+@app.get("/api/keys")
+def api_keys(request: Request) -> JSONResponse:
+    """Per-credential profile, state and latest AI analysis (dashboard "Credenciales")."""
+    if AUTH_CONFIGURED and _session_user(request) is None:
+        return JSONResponse({"error": "unauthorized"}, status_code=401)
+    return JSONResponse({"keys": monitor.credentials()}, headers={"Cache-Control": "no-store"})
+
+
 async def _start_victim_job() -> tuple[dict, int]:
     """Start the real CPU-burning job on the victim; same effect as attack.py.
 

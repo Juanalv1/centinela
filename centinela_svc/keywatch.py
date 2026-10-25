@@ -114,6 +114,24 @@ class KeyWatch:
                 flags.append(flag)
         return sorted(flags, key=lambda f: -f["score"])
 
+    def overview(self, now: float) -> list[dict]:
+        """Every key seen: its learned profile and its current window against it, flagged or not."""
+        self._age(now)
+        rows = []
+        for key in sorted(set(self.profiles) | set(self.recent)):
+            profile, window = self.profiles.get(key), self.recent.get(key)
+            known = profile is not None and profile.first_ts is not None
+            cmp = self._compare(key, window, profile, now) if window and known else None
+            rows.append({
+                "key_id": key,
+                "profile": profile.summary(now) if known else None,
+                "window": cmp and cmp["window"],
+                "signals": cmp and cmp["signals"],
+                "score": cmp["score"] if cmp else 0,
+                "flagged": bool(cmp) and cmp["score"] >= FLAG_SCORE,
+            })
+        return rows
+
     def _compare(self, key: int, window: list[dict], p: _Profile, now: float) -> dict:
         ips = sorted({e["ip"] for e in window})
         locals_ = [self._local(e["ts"]) for e in window]

@@ -111,6 +111,7 @@ class Monitor:
         self._keys_at = 0.0
         self._key_reasoned_at: dict[int, float] = {}
         self._key_reasoned_on: dict[int, tuple[int, int, int]] = {}  # (score, pages, requests) last shown
+        self._key_last_proposal: dict[int, int] = {}  # key -> id of the last proposal that saw it flagged
         self._lock = asyncio.Lock()  # serializes executor use (monitor + simulate)
 
     def restore(self, entries: list[dict]) -> None:
@@ -229,6 +230,8 @@ class Monitor:
             proposal = await self.reasoner.propose(metrics)
         finally:
             self.reasoner_busy = False
+        for flag in metrics.get("key_activity") or []:
+            self._key_last_proposal[flag["key_id"]] = proposal.id
         await self.submit(proposal)
 
     async def submit(self, proposal: Proposal) -> dict:
@@ -288,6 +291,33 @@ class Monitor:
                 inc["confirmed_s"] = round(now - inc["attack_start"], 2)
                 self._audit_incident({"proposal_id": inc.get("proposal_id"), "pid": inc["pid"],
                                       "gone_confirmed_at": now, "confirmed_s": inc["confirmed_s"]})
+
+    def credentials(self) -> list[dict]:
+        """Per-key view for the client dashboard: learned profile, current window, state
+        and the latest AI analysis. Key id and label only: never values or user names."""
+        rows = {r["key_id"]: r for r in self.keywatch.overview(time.time() - self.clock_offset)}
+        out = []
+        for key in sorted(set(rows) | set(self._keys)):
+            row = rows.get(key) or {"key_id": key, "profile": None, "window": None, "signals": None,
+                                    "score": 0, "flagged": False}
+            meta = self._keys.get(key, {})
+            state = ("revoked" if meta.get("status") == "revoked"
+                     else "suspicious" if row["flagged"] else "active")
+            out.append({**row, "label": meta.get("label"), "protected": meta.get("protected"),
+                        "state": state, "analysis": self._key_analysis(key)})
+        return out
+
+    def _key_analysis(self, key: int) -> dict | None:
+        """Newest proposal that targeted this key or was made while it was flagged."""
+        seen = self._key_last_proposal.get(key)
+        for p in self.proposals:  # newest first
+            target = p.get("target") or {}
+            if p["id"] == seen or (target.get("type") == "key" and target.get("value") == str(key)):
+                decision = next((d for d in self.decisions if d["proposal_id"] == p["id"]), None)
+                return {"proposal_id": p["id"], "at": p.get("created_at"), "action": p.get("action"),
+                        "rationale": p.get("rationale"), "confidence": p.get("confidence"),
+                        "decision": decision and decision["status"]}
+        return None
 
     def state(self) -> dict:
         return {
