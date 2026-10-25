@@ -320,6 +320,14 @@ def state() -> dict:
     return monitor.state()
 
 
+@app.get("/api/keys")
+def api_keys(request: Request) -> JSONResponse:
+    """Per-credential profile, state and latest AI analysis (dashboard "Credenciales")."""
+    if AUTH_CONFIGURED and _session_user(request) is None:
+        return JSONResponse({"error": "unauthorized"}, status_code=401)
+    return JSONResponse({"keys": monitor.credentials()}, headers={"Cache-Control": "no-store"})
+
+
 async def _start_victim_job() -> tuple[dict, int]:
     """Start the real CPU-burning job on the victim; same effect as attack.py.
 
@@ -476,21 +484,29 @@ class ApprovalRequest(BaseModel):
     approve: bool
 
 
+def _approver(request: Request, token: str | None) -> tuple[str | None, JSONResponse | None]:
+    """Who may act as approver: (actor, None) when allowed, (None, error response) otherwise."""
+    if APPROVER_TOKEN and token and hmac.compare_digest(token.encode(), APPROVER_TOKEN.encode()):
+        return "approver-token", None
+    if AUTH_CONFIGURED:
+        user = _session_user(request)
+        if user is None:
+            return None, JSONResponse({"error": "unauthorized"}, status_code=401)
+        if not _is_admin(user) or not _csrf_ok(request):
+            return None, JSONResponse({"error": "forbidden"}, status_code=403)
+        return user["email"], None
+    if APPROVER_TOKEN:  # demo mode: legacy behavior, token only
+        return None, JSONResponse({"error": "unauthorized"}, status_code=401)
+    return "demo", None
+
+
 @app.post("/api/approvals/{proposal_id}")
 async def resolve_approval(proposal_id: int, req: ApprovalRequest, request: Request,
                            x_approver_token: str | None = Header(default=None)):
     # The panel is public: without this, anyone could approve a high-impact action.
-    token_ok = bool(APPROVER_TOKEN and x_approver_token and
-                    hmac.compare_digest(x_approver_token.encode(), APPROVER_TOKEN.encode()))
-    if not token_ok:
-        if AUTH_CONFIGURED:
-            user = _session_user(request)
-            if user is None:
-                return JSONResponse({"error": "unauthorized"}, status_code=401)
-            if not _is_admin(user) or not _csrf_ok(request):
-                return JSONResponse({"error": "forbidden"}, status_code=403)  # viewers and non-members
-        elif APPROVER_TOKEN:  # demo mode: legacy behavior, token only
-            return JSONResponse({"error": "unauthorized"}, status_code=401)
+    _, denied = _approver(request, x_approver_token)
+    if denied:
+        return denied
     decision = await monitor.resolve_approval(proposal_id, req.approve)
     if decision is None:
         return JSONResponse({"error": "no pending approval with that id"}, status_code=404)
@@ -579,3 +595,15 @@ def remove_member(email: str, request: Request) -> JSONResponse:
         return JSONResponse({"ok": True})
     except MemberError as exc:
         return _member_error(exc)
+
+
+@app.post("/api/keys/{key_id}/normal")
+def mark_key_normal(key_id: int, request: Request, x_approver_token: str | None = Header(default=None)):
+    """Owner feedback: this key's flagged window was normal use. Learned and audited; never un-revokes."""
+    actor, denied = _approver(request, x_approver_token)
+    if denied:
+        return denied
+    result = monitor.mark_normal(key_id, actor)
+    if result is None:
+        return JSONResponse({"error": "key is not flagged"}, status_code=409)
+    return {"feedback": result}

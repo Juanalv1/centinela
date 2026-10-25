@@ -111,13 +111,15 @@ class Monitor:
         self._keys_at = 0.0
         self._key_reasoned_at: dict[int, float] = {}
         self._key_reasoned_on: dict[int, tuple[int, int, int]] = {}  # (score, pages, requests) last shown
+        self._key_last_proposal: dict[int, int] = {}  # key -> id of the last proposal that saw it flagged
         self._lock = asyncio.Lock()  # serializes executor use (monitor + simulate)
 
     def restore(self, entries: list[dict]) -> None:
         """Refill the dashboard history from audit entries after a restart.
 
         Not restored: pending approvals (their pids are gone: shown as expired and
-        audited as such), CPU samples, the baseline and the key watch.
+        audited as such), CPU samples, the baseline and the key watch, except the
+        windows the owner marked as normal (re-learned from their audit entries).
         """
         past = replay(entries)
         seed_ids(past["max_id"])
@@ -131,6 +133,10 @@ class Monitor:
             self.executor.audit.append("decision", expired.to_dict())
             self.decisions.appendleft(expired.to_dict())
         self.incidents = past["incidents"]
+        for entry in entries:
+            data = entry.get("data")
+            if entry.get("kind") == "key_feedback" and isinstance(data, dict):
+                self.keywatch.learn(data["key_id"], data.get("entries") or [])
 
     async def run(self) -> None:
         while True:
@@ -229,6 +235,8 @@ class Monitor:
             proposal = await self.reasoner.propose(metrics)
         finally:
             self.reasoner_busy = False
+        for flag in metrics.get("key_activity") or []:
+            self._key_last_proposal[flag["key_id"]] = proposal.id
         await self.submit(proposal)
 
     async def submit(self, proposal: Proposal) -> dict:
@@ -288,6 +296,54 @@ class Monitor:
                 inc["confirmed_s"] = round(now - inc["attack_start"], 2)
                 self._audit_incident({"proposal_id": inc.get("proposal_id"), "pid": inc["pid"],
                                       "gone_confirmed_at": now, "confirmed_s": inc["confirmed_s"]})
+
+    def credentials(self) -> list[dict]:
+        """Per-key view for the client dashboard: learned profile, current window, state
+        and the latest AI analysis. Key id and label only: never values or user names."""
+        rows = {r["key_id"]: r for r in self.keywatch.overview(time.time() - self.clock_offset)}
+        out = []
+        for key in sorted(set(rows) | set(self._keys)):
+            row = rows.get(key) or {"key_id": key, "profile": None, "window": None, "signals": None,
+                                    "score": 0, "flagged": False}
+            meta = self._keys.get(key, {})
+            state = ("revoked" if meta.get("status") == "revoked"
+                     else "suspicious" if row["flagged"] else "active")
+            out.append({**row, "label": meta.get("label"), "protected": meta.get("protected"),
+                        "state": state, "analysis": self._key_analysis(key)})
+        return out
+
+    def mark_normal(self, key: int, by: str) -> dict | None:
+        """Owner feedback: the key's flagged window was normal use, so learn it.
+
+        Audited first (fails closed: nothing is learned if the write does not land).
+        Never un-revokes: the key's status belongs to the executor and to humans.
+        Returns None when the key has no flagged window right now.
+        """
+        victim_now = time.time() - self.clock_offset
+        row = next((r for r in self.keywatch.overview(victim_now) if r["key_id"] == key), None)
+        if row is None or not row["flagged"]:
+            return None
+        window = self.keywatch.recent.get(key, [])
+        self.executor.audit.append("key_feedback", {
+            "key_id": key, "label": self._keys.get(key, {}).get("label"), "by": by,
+            "score": row["score"], "signals": row["signals"],
+            "entries": [{k: e.get(k) for k in ("id", "ts", "ip", "path", "bytes")} for e in window],
+        })
+        learned = self.keywatch.learn_window(key, victim_now)
+        self.key_activity = [f for f in self.key_activity if f["key_id"] != key]
+        return {"key_id": key, "learned": len(learned)}
+
+    def _key_analysis(self, key: int) -> dict | None:
+        """Newest proposal that targeted this key or was made while it was flagged."""
+        seen = self._key_last_proposal.get(key)
+        for p in self.proposals:  # newest first
+            target = p.get("target") or {}
+            if p["id"] == seen or (target.get("type") == "key" and target.get("value") == str(key)):
+                decision = next((d for d in self.decisions if d["proposal_id"] == p["id"]), None)
+                return {"proposal_id": p["id"], "at": p.get("created_at"), "action": p.get("action"),
+                        "rationale": p.get("rationale"), "confidence": p.get("confidence"),
+                        "decision": decision and decision["status"]}
+        return None
 
     def state(self) -> dict:
         return {
