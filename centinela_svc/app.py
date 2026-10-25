@@ -22,8 +22,21 @@ from executor import Executor, VictimClient, VictimDb
 from monitor import Monitor
 from reasoner import ClaudeReasoner
 
+def _load_dotenv(path: Path) -> None:
+    """Local dev: load KEY=VALUE pairs from the repo-root .env without overriding real env vars."""
+    if not path.exists():
+        return
+    for line in path.read_text(encoding="utf-8").splitlines():
+        key, sep, value = line.strip().partition("=")
+        if sep and key and not key.startswith("#"):
+            os.environ.setdefault(key.strip(), value.strip().strip('"').strip("'"))
+
+
+_load_dotenv(Path(__file__).resolve().parent.parent / ".env")
+
 logging.basicConfig(level=logging.INFO)
 logging.getLogger("httpx").setLevel(logging.WARNING)  # one line per poll is noise
+log = logging.getLogger("centinela")
 
 VICTIM_URL = os.environ.get("VICTIM_URL", "http://localhost:8000")
 EXECUTOR_TOKEN = os.environ.get("EXECUTOR_TOKEN", "")
@@ -35,7 +48,10 @@ EXECUTOR_DATABASE_URL = os.environ.get("EXECUTOR_DATABASE_URL")  # least-privile
 OFFICE_CIDR = os.environ.get("OFFICE_CIDR", "203.0.113.0/24")  # never blocked
 APPROVER_TOKEN = os.environ.get("APPROVER_TOKEN", "")  # when set, required to resolve approvals
 RESTORE_ENTRIES = 2000  # audit tail replayed at startup to refill the dashboard history
-TTS_VOICE = os.environ.get("TTS_VOICE", "es-CL-CatalinaNeural")  # Edge neural voice
+TTS_VOICE = os.environ.get("TTS_VOICE", "es-CL-CatalinaNeural")  # Edge neural voice (fallback)
+ELEVEN_LABS_API_KEY = os.environ.get("ELEVEN_LABS_API_KEY", "")  # when set, ElevenLabs is the primary voice
+ELEVEN_LABS_VOICE_ID = os.environ.get("ELEVEN_LABS_VOICE_ID", "21m00Tcm4TlvDq8ikWAM")
+ELEVEN_LABS_MODEL = os.environ.get("ELEVEN_LABS_MODEL", "eleven_flash_v2_5")
 
 # Google login (single shared demo org). Auth is "configured" only when all three
 # secrets are set; otherwise /dashboard stays open in demo mode (pitch fallback).
@@ -296,11 +312,26 @@ class SpeakIn(BaseModel):
 
 @app.post("/api/tts")
 async def tts(body: SpeakIn):
-    """Synthesize the agent's alert with Edge's natural (neural) voices; returns MP3."""
-    import edge_tts  # lazy: only the panel voice needs it
+    """Synthesize the agent's line as MP3: ElevenLabs when keyed, Edge neural voice otherwise."""
     text = body.text.strip()[:400]
     if not text:
         return JSONResponse({"error": "empty text"}, status_code=400)
+    if ELEVEN_LABS_API_KEY:
+        try:
+            async with httpx.AsyncClient() as client:
+                resp = await client.post(
+                    f"https://api.elevenlabs.io/v1/text-to-speech/{ELEVEN_LABS_VOICE_ID}",
+                    params={"output_format": "mp3_44100_128"},
+                    headers={"xi-api-key": ELEVEN_LABS_API_KEY},
+                    json={"text": text, "model_id": ELEVEN_LABS_MODEL, "language_code": "es"},
+                    timeout=20,
+                )
+            if resp.status_code == 200:
+                return Response(resp.content, media_type="audio/mpeg")
+            log.warning("elevenlabs tts failed: HTTP %s", resp.status_code)
+        except Exception as exc:  # fall through to Edge
+            log.warning("elevenlabs tts failed: %s", type(exc).__name__)
+    import edge_tts  # lazy: only the fallback voice needs it
     try:
         audio = bytearray()
         async for chunk in edge_tts.Communicate(text, TTS_VOICE).stream():
