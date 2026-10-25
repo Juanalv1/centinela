@@ -24,7 +24,7 @@ Product first, demo follows: a customer would use this view daily; the demo's "t
 ## Tasks
 - [x] C1: backend profile + state exposure (keywatch/monitor/app) with tests. Route: delegated (2+ non-trivial files). Done (58dcdf0): `KeyWatch.overview`, `Monitor.credentials` (state active/suspicious/revoked, latest AI analysis per key), `GET /api/keys`; `tests/test_credentials_view.py`.
 - [x] C2: "mark as normal" feedback endpoint + baseline learning + audit entry, with tests. Route: delegated. Done (4a14d69): `POST /api/keys/{id}/normal` (same auth as approvals via shared `_approver`; 409 when not flagged), `KeyWatch.learn_window`/`learn` (dedup by entry id), `key_feedback` audit entry written before learning and replayed on restart; never touches key status.
-- [ ] C3: "Credenciales" section in the dashboard wired to C1/C2. Route: delegated.
+- [x] C3: "Credenciales" section in the dashboard wired to C1/C2. Route: delegated. Done (8e0951d): nav entry + section polling `/api/keys` (label/#id, state badge, learned profile, current window deviations, latest AI analysis); "Marcar como normal" button only for flagged keys and accounts that can approve, with confirm; DOM via textContent only.
 
 ## Acceptance
 - `/dashboard` lists each key with learned profile, state and latest rationale.
@@ -36,3 +36,4 @@ Product first, demo follows: a customer would use this view daily; the demo's "t
 
 ## Progress
 Branch `feat/credentials-view` (from main at 2eb2fd0).
+Verification (local, Windows, embedded pgserver): full suite 155 passed; 7 failed + 10 errors identical to the base run before this feature (psycopg async needs SelectorEventLoop on Windows in `test_executor_case2.py`; Linux-only `test_victim_behavior.py`/`test_victim_managed.py`). The 3 L8 failures did not reproduce locally.
