@@ -21,8 +21,13 @@ Reorganize `centinela_svc/` into light layers without behavior change.
 Re-measured on main 7437620 by the writer before moving files (previous main: 120 passed, 5 victim/ failures, 5 pgserver collection errors).
 
 ## Tasks
-- [ ] T1 Move modules into layers, split executor I/O into adapters, split app.py into web/ (route: delegated, 2+ non-trivial files)
-- [ ] T2 Update tests, Dockerfile, deploy config; suite matches baseline
+- [x] T1 Move modules into layers, split executor I/O into adapters, split app.py into web/ (route: delegated, 2+ non-trivial files). Evidence: cfc1cd3 (captured by the auto-sync commit, not a dedicated work-unit commit)
+- [x] T2 Update tests, Dockerfile, deploy config; suite matches baseline. Evidence: cfc1cd3; after: 123 passed, 5 failed (victim/ only), 6 pgserver collection errors = baseline on 7437620; tests/test_executor.py 24 passed; `python -c "import web.app"` ok
+
+## Follow-ups
+- application/executor.py still lazy-imports psycopg to classify DB errors (kept to avoid unverifiable behavior change; pg tests need pgserver).
+- Monitor still polls the victim through an injected httpx client (constructor kept for tests).
+- HANDOFF.md / docs/REPARTO.md still name old flat paths.
 
 ## Next step
-T1.
+Review and PR (user decision).
