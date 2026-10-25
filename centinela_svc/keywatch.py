@@ -5,8 +5,10 @@ Each key's successful requests older than the current window form its profile
 by bytes). The
 window (last `window_s` seconds) is compared against it. A key is flagged only
 when several independent deviations combine, never on one alone (a known user
-on a new network is not an incident). Flagged windows are never learned, so an
-attack does not become "normal" once it ages out of the window.
+on a new network is not an incident). Only activity older than `learn_after_s`
+(default one day) is learned: anything more recent is judged, never learned, so
+neither an attack ageing out of the window nor a restart re-reading the whole
+log can turn today's misuse into "normal".
 """
 from __future__ import annotations
 
@@ -67,12 +69,13 @@ class _Profile:
 
 
 class KeyWatch:
-    def __init__(self, window_s: float = 600, tz_offset_hours: float = -4) -> None:
+    def __init__(self, window_s: float = 600, tz_offset_hours: float = -4,
+                 learn_after_s: float = 86400) -> None:
         self.window_s = window_s
+        self.learn_after_s = learn_after_s
         self.tz = timezone(timedelta(hours=tz_offset_hours))
         self.profiles: dict[int, _Profile] = defaultdict(_Profile)
         self.recent: dict[int, list[dict]] = defaultdict(list)
-        self._tainted: set[int] = set()  # entry ids that were part of a flagged window
 
     def _local(self, ts: float) -> datetime:
         return datetime.fromtimestamp(ts, self.tz)
@@ -82,20 +85,19 @@ class KeyWatch:
             key = e.get("api_key_id")
             if key is None or not 200 <= (e.get("status") or 0) < 300:
                 continue  # profiles describe what the key successfully did
-            if e["ts"] < now - self.window_s:
+            if e["ts"] < now - self.learn_after_s:
                 self.profiles[key].add(e, self._local(e["ts"]))
-            else:
+            elif e["ts"] >= now - self.window_s:
                 self.recent[key].append(e)
+            # between the two: too recent to learn, too old to judge
+
+
 
     def _age(self, now: float) -> None:
+        """Drop entries that left the window. They are not learned now; a later restart
+        re-reads them as history only once they are older than learn_after_s."""
         for key, entries in self.recent.items():
-            keep = []
-            for e in entries:
-                if e["ts"] >= now - self.window_s:
-                    keep.append(e)
-                elif e["id"] not in self._tainted:
-                    self.profiles[key].add(e, self._local(e["ts"]))
-            self.recent[key] = keep
+            self.recent[key] = [e for e in entries if e["ts"] >= now - self.window_s]
 
     def evaluate(self, now: float, active_keys: set[int] | None = None) -> list[dict]:
         """Flagged keys, most anomalous first. `active_keys` limits it to keys still usable."""
@@ -109,7 +111,6 @@ class KeyWatch:
                 continue
             flag = self._compare(key, window, profile, now)
             if flag["score"] >= FLAG_SCORE:
-                self._tainted.update(e["id"] for e in window)
                 flags.append(flag)
         return sorted(flags, key=lambda f: -f["score"])
 

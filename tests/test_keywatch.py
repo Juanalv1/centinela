@@ -93,3 +93,16 @@ def test_skips_keys_listed_as_inactive():
     w.ingest([entry(NOW - timedelta(seconds=300 - 10 * p), ip="198.51.100.23", path="/api/customers",
                     query=f"page={p}", size=4000) for p in range(1, 21)], now=NOW.timestamp())
     assert w.evaluate(NOW.timestamp(), active_keys={3}) == []
+
+
+def test_recent_activity_is_judged_not_learned_even_after_a_restart():
+    """A restart re-reads the whole log; today's attack must not come back as history."""
+    earlier = [entry(NOW - timedelta(hours=1, seconds=p), ip="198.51.100.23", path="/api/customers",
+                     query=f"page={p}", size=4000) for p in range(1, 21)]
+    w = watch_with(office_history() + earlier)  # a fresh KeyWatch, as after a redeploy
+    again = [entry(NOW - timedelta(seconds=100 - p), ip="198.51.100.23", path="/api/customers",
+                   query=f"page={p}", size=4000) for p in range(1, 11)]
+    w.ingest(again, now=NOW.timestamp())
+    [flag] = w.evaluate(NOW.timestamp())
+    assert flag["signals"]["new_ip"] and flag["signals"]["new_endpoints"] == ["/api/customers"]
+    assert flag["profile"]["endpoints"] == ["/api/invoices", "/api/me"]
