@@ -9,10 +9,11 @@ import psycopg
 import pytest
 from fastapi.testclient import TestClient
 
-from audit import AuditLog
+from adapters.audit import AuditLog
 from conftest import VICTIM, load_module
-from domain import Proposal, Target
-from executor import Executor, VictimDb, check_policy
+from domain.model import Proposal, Target
+from adapters.victim import VictimDb
+from application.executor import Executor, check_policy
 from pg import fresh_db
 
 LEAKED = "cen_demo_ana_leaked_key"

@@ -5,8 +5,8 @@ import threading
 import pytest
 from fastapi.testclient import TestClient
 
-from audit import AuditLog
-from members import MemberError, MemberStore, normalize_email
+from adapters.audit import AuditLog
+from adapters.members import MemberError, MemberStore, normalize_email
 from pg import fresh_db
 from test_auth import ADMIN, AUTH_ENV, PUBLIC, google_mock, login, make  # noqa: F401  (make is a fixture)
 
@@ -32,7 +32,7 @@ def second_client(mod, email):
 
 
 def member_events(mod):
-    return [e["data"] for e in mod.members._audit.entries if e["kind"] == "member"]
+    return [e["data"] for e in mod.app.state.ctx.members._audit.entries if e["kind"] == "member"]
 
 
 # --- store --------------------------------------------------------------
@@ -232,7 +232,7 @@ def test_bootstrap_from_admin_emails_logs_in_admin(boot):
     assert c.get("/dashboard").status_code == 200
     me = c.get("/api/me").json()
     assert (me["member"], me["role"], me["can_approve"], me["can_manage"]) == (True, "admin", True, True)
-    assert {m["email"] for m in mod.members.list()} == {BOSS, OTHER}
+    assert {m["email"] for m in mod.app.state.ctx.members.list()} == {BOSS, OTHER}
 
 
 def test_non_member_gets_no_access_page(make):  # noqa: F811
@@ -288,7 +288,7 @@ def test_admin_invite_promote_remove_with_audit(boot):
     mine = [e for e in member_events(mod) if e["email"] == "new@x.com"]
     assert [(e["action"], e["role"], e["actor"]) for e in mine] == [
         ("add", "viewer", BOSS), ("role", "admin", BOSS), ("remove", None, BOSS)]
-    assert mod.monitor.executor.audit.verify()[0]  # still one valid hash chain
+    assert mod.app.state.ctx.monitor.executor.audit.verify()[0]  # still one valid hash chain
 
 
 def test_invalid_input_is_400(boot):
@@ -309,7 +309,7 @@ def test_self_and_last_admin_guards_over_http(boot):
     boss_again = second_client(mod, BOSS)  # demoted: viewer cannot touch the last admin
     assert boss_again.patch("/api/members/v@x.com", json={"role": "viewer"}, headers=ADMIN).status_code == 403
     with pytest.raises(MemberError) as e:
-        mod.members.remove("v@x.com", "someone@else.com")
+        mod.app.state.ctx.members.remove("v@x.com", "someone@else.com")
     assert e.value.code == "last_admin"
 
 
@@ -352,7 +352,7 @@ def test_token_approval_path_unchanged_for_non_members(make):  # noqa: F811
 
 def test_demo_mode_has_no_member_api(make):  # noqa: F811
     mod, c = make(auth=False)
-    assert mod.members is None
+    assert mod.app.state.ctx.members is None
     assert c.get("/api/members").status_code == 404
     assert c.post("/api/members", json={"email": "a@b.co", "role": "viewer"}).status_code == 404
     assert c.get("/api/me").json() == {"auth": "demo", "user": None, "can_approve": True}
@@ -361,15 +361,15 @@ def test_demo_mode_has_no_member_api(make):  # noqa: F811
 def test_member_write_failure_returns_503(make):  # noqa: F811
     mod, c = make(AUDIT_DATABASE_URL=fresh_db())
     login(mod, c)
-    real, calls = mod.members._connection, []
+    real, calls = mod.app.state.ctx.members._connection, []
 
     def flaky():
         calls.append(1)
         if len(calls) > 1:  # first call is the admin check of the request; the write itself fails
             raise RuntimeError("db down")
         return real()
-    mod.members._connection = flaky
+    mod.app.state.ctx.members._connection = flaky
     r = c.post("/api/members", json={"email": "a@b.co", "role": "viewer"}, headers=ADMIN)
     assert r.status_code == 503 and r.json()["code"] == "unavailable"
-    mod.members._connection = real
-    assert "a@b.co" not in {m["email"] for m in mod.members.list()}
+    mod.app.state.ctx.members._connection = real
+    assert "a@b.co" not in {m["email"] for m in mod.app.state.ctx.members.list()}

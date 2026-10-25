@@ -3,7 +3,7 @@ from datetime import datetime, timedelta, timezone
 
 from conftest import SVC, load_module
 
-kw = load_module("centinela_keywatch", SVC / "keywatch.py")
+kw = load_module("centinela_keywatch", SVC / "domain" / "keywatch.py")
 
 CARACAS = timezone(timedelta(hours=-4))
 NOW = datetime(2026, 10, 25, 15, 0, tzinfo=CARACAS)  # a Sunday afternoon

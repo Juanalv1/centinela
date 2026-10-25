@@ -4,12 +4,13 @@ import asyncio
 import pytest
 from fastapi.testclient import TestClient
 
-from audience import AudienceState, AudienceStore
-from audit import AuditLog
+from adapters.audience_store import AudienceStore
+from application.audience import AudienceState
+from adapters.audit import AuditLog
 from conftest import SVC, load_module
-from domain import Proposal, Target
-from executor import Executor
-from monitor import Monitor
+from domain.model import Proposal, Target
+from application.executor import Executor
+from application.monitor import Monitor
 from pg import fresh_db
 
 JOB_PID = 4242
@@ -114,7 +115,7 @@ def app_client(monkeypatch, tmp_path, name, dsn=None):
         monkeypatch.setenv("AUDIT_DATABASE_URL", dsn)
     else:
         monkeypatch.delenv("AUDIT_DATABASE_URL", raising=False)
-    mod = load_module(name, SVC / "app.py")
+    mod = load_module(name, SVC / "web" / "app.py")
     return mod, TestClient(mod.app)
 
 
@@ -151,7 +152,7 @@ def test_audience_without_database_stays_in_memory(monkeypatch, tmp_path):
     mod, client = app_client(monkeypatch, tmp_path, "centinela_app_restart_mem")
     with client:
         assert client.post("/api/join", json={"handle": "vale"}).status_code == 200
-        assert mod.audience.store is None
+        assert mod.app.state.ctx.audience.store is None
         assert client.get("/api/live").json()["people"] == 1
 
 

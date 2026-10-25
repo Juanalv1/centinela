@@ -1,7 +1,7 @@
 """Audit append survives a seq collision from a concurrent writer (deploy overlap)."""
 from conftest import SVC, load_module
 
-audit_mod = load_module("centinela_audit_retry", SVC / "audit.py")
+audit_mod = load_module("centinela_audit_retry", SVC / "adapters" / "audit.py")
 AuditLog = audit_mod.AuditLog
 GENESIS = audit_mod.GENESIS
 

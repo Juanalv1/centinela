@@ -5,7 +5,7 @@ import json
 import psycopg
 import pytest
 
-from audit import GENESIS, AuditLog
+from adapters.audit import GENESIS, AuditLog
 from pg import fresh_db
 
 

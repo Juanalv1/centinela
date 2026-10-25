@@ -4,7 +4,7 @@ from fastapi.testclient import TestClient
 
 from conftest import SVC, load_module
 
-audience_mod = load_module("centinela_audience", SVC / "audience.py")
+audience_mod = load_module("centinela_audience", SVC / "application" / "audience.py")
 AudienceState = audience_mod.AudienceState
 RateLimited = audience_mod.RateLimited
 normalize_handle = audience_mod.normalize_handle
@@ -116,7 +116,7 @@ def client(monkeypatch, tmp_path):
     monkeypatch.setenv("AUDIT_PATH", str(tmp_path / "audit.jsonl"))
     monkeypatch.setenv("VICTIM_URL", "http://127.0.0.1:9")  # unreachable; monitor records errors
     monkeypatch.delenv("ANTHROPIC_API_KEY", raising=False)
-    mod = load_module("centinela_app_audience", SVC / "app.py")
+    mod = load_module("centinela_app_audience", SVC / "web" / "app.py")
     with TestClient(mod.app) as c:
         yield c
 

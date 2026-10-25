@@ -10,8 +10,8 @@ from conftest import SVC, load_module
 from test_keywatch import NOW, entry, office_history, watch_with
 from test_monitor_keys import ATTACK, KEYS, FakeExecutor, Victim, _history, domain
 
-kw = load_module("centinela_keywatch_creds", SVC / "keywatch.py")
-monitor_mod = load_module("centinela_monitor_creds", SVC / "monitor.py")
+kw = load_module("centinela_keywatch_creds", SVC / "domain" / "keywatch.py")
+monitor_mod = load_module("centinela_monitor_creds", SVC / "application" / "monitor.py")
 
 
 def _attack(at=NOW, n=20):
@@ -133,12 +133,12 @@ def app_mod(monkeypatch, tmp_path):
     monkeypatch.setenv("VICTIM_URL", "http://127.0.0.1:9")
     monkeypatch.delenv("ANTHROPIC_API_KEY", raising=False)
     monkeypatch.delenv("APPROVER_TOKEN", raising=False)
-    return load_module("centinela_app_creds", SVC / "app.py")
+    return load_module("centinela_app_creds", SVC / "web" / "app.py")
 
 
 def test_api_keys_serves_the_monitor_credentials(app_mod):
     with TestClient(app_mod.app) as client:
-        app_mod.monitor.credentials = lambda: [{"key_id": 2, "label": "ana-integration", "state": "active"}]
+        app_mod.app.state.ctx.monitor.credentials = lambda: [{"key_id": 2, "label": "ana-integration", "state": "active"}]
         r = client.get("/api/keys")
         assert r.status_code == 200 and r.headers["cache-control"] == "no-store"
         assert r.json() == {"keys": [{"key_id": 2, "label": "ana-integration", "state": "active"}]}
@@ -245,7 +245,7 @@ def feedback_client(monkeypatch, tmp_path):
             monkeypatch.delenv("APPROVER_TOKEN", raising=False)
         else:
             monkeypatch.setenv("APPROVER_TOKEN", token)
-        mod = load_module("centinela_app_feedback", SVC / "app.py")
+        mod = load_module("centinela_app_feedback", SVC / "web" / "app.py")
         return mod, TestClient(mod.app)
     return make
 
@@ -254,7 +254,7 @@ def test_feedback_endpoint_requires_the_approver_token_when_configured(feedback_
     mod, client = feedback_client("human-secret")
     with client:
         seen = []
-        mod.monitor.mark_normal = lambda key, by: seen.append((key, by)) or {"key_id": key, "learned": 3}
+        mod.app.state.ctx.monitor.mark_normal = lambda key, by: seen.append((key, by)) or {"key_id": key, "learned": 3}
         assert client.post("/api/keys/2/normal").status_code == 401
         assert client.post("/api/keys/2/normal", headers={"X-Approver-Token": "nope"}).status_code == 401
         r = client.post("/api/keys/2/normal", headers={"X-Approver-Token": "human-secret"})

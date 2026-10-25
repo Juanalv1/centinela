@@ -6,9 +6,9 @@ import httpx
 
 from conftest import SVC, load_module
 
-monitor_mod = load_module("centinela_monitor_keys", SVC / "monitor.py")
-domain = load_module("domain", SVC / "domain.py")
-reasoner_mod = load_module("centinela_reasoner_keys", SVC / "reasoner.py")
+monitor_mod = load_module("centinela_monitor_keys", SVC / "application" / "monitor.py")
+from domain import model as domain  # noqa: E402
+reasoner_mod = load_module("centinela_reasoner_keys", SVC / "adapters" / "reasoner.py")
 
 NOW = datetime(2026, 10, 25, 15, 0, tzinfo=timezone(timedelta(hours=-4))).timestamp()  # Sunday
 

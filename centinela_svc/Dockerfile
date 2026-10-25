@@ -6,7 +6,10 @@ WORKDIR /app
 COPY requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt \
     && useradd --system --create-home centinela
-COPY *.py *.html ./
+COPY domain ./domain
+COPY application ./application
+COPY adapters ./adapters
+COPY web ./web
 USER centinela
 
-CMD ["sh", "-c", "exec python -m uvicorn app:app --host 0.0.0.0 --port ${PORT:-8000} --no-access-log"]
+CMD ["sh", "-c", "exec python -m uvicorn web.app:app --host 0.0.0.0 --port ${PORT:-8000} --no-access-log"]
