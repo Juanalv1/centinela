@@ -30,6 +30,17 @@ def _network(ip: str) -> str:
     return str(ipaddress.ip_network(f"{addr}/{24 if addr.version == 4 else 48}", strict=False))
 
 
+def _ident(e: dict) -> tuple | None:
+    """Entry ids are unique per source only: two sources may both send id 5."""
+    return None if e.get("id") is None else (e.get("source"), e["id"])
+
+
+def _pages(e: dict) -> list[str]:
+    if e.get("page") is not None:
+        return [str(e["page"])]
+    return parse_qs(e.get("query") or "").get("page", [])
+
+
 class _Profile:
     def __init__(self) -> None:
         self.ips: set[str] = set()
@@ -39,13 +50,14 @@ class _Profile:
         self.endpoints: set[str] = set()
         self.hour_bytes: dict[tuple, int] = defaultdict(int)
         self.first_ts: float | None = None
-        self.seen: set[int] = set()  # entry ids already learned (feedback may be learned twice)
+        self.seen: set[tuple] = set()  # (source, entry id) already learned (feedback may be learned twice)
 
-    def add(self, e: dict, local: datetime) -> None:
-        if e.get("id") is not None:
-            if e["id"] in self.seen:
-                return
-            self.seen.add(e["id"])
+    def add(self, e: dict, local: datetime) -> bool:
+        ident = _ident(e)
+        if ident is not None:
+            if ident in self.seen:
+                return False
+            self.seen.add(ident)
         self.ips.add(e["ip"])
         self.networks.add(_network(e["ip"]))
         self.slots.add((local.weekday(), local.hour))
@@ -55,6 +67,7 @@ class _Profile:
         self.endpoints.add(e["path"])
         self.hour_bytes[(local.date(), local.hour)] += e.get("bytes") or 0
         self.first_ts = e["ts"] if self.first_ts is None else min(self.first_ts, e["ts"])
+        return True
 
     def usual(self, local: datetime) -> bool:
         """Inside the hours this key keeps on this kind of day (weekday or weekend)?"""
@@ -86,18 +99,25 @@ class KeyWatch:
     def _local(self, ts: float) -> datetime:
         return datetime.fromtimestamp(ts, self.tz)
 
-    def ingest(self, entries: list[dict], now: float) -> None:
+    def ingest(self, entries: list[dict], now: float) -> int:
+        """Learn or judge each entry; returns how many were new (replayed entries count once)."""
+        new = 0
+        in_window: dict[int, set] = {}
         for e in entries:
             key = e.get("api_key_id")
             if key is None or not 200 <= (e.get("status") or 0) < 300:
                 continue  # profiles describe what the key successfully did
             if e["ts"] < now - self.learn_after_s:
-                self.profiles[key].add(e, self._local(e["ts"]))
+                new += self.profiles[key].add(e, self._local(e["ts"]))
             elif e["ts"] >= now - self.window_s:
-                self.recent[key].append(e)
+                seen = in_window.setdefault(key, {_ident(r) for r in self.recent[key]})
+                ident = _ident(e)
+                if ident is None or ident not in seen:
+                    seen.add(ident)
+                    self.recent[key].append(e)
+                    new += 1
             # between the two: too recent to learn, too old to judge
-
-
+        return new
 
     def learn(self, key: int, entries: list[dict]) -> None:
         """Add entries to a key's profile as normal use (owner feedback, or its replay after a restart)."""
@@ -155,7 +175,7 @@ class KeyWatch:
         ips = sorted({e["ip"] for e in window})
         locals_ = [self._local(e["ts"]) for e in window]
         total = sum(e.get("bytes") or 0 for e in window)
-        pages = {v for e in window for v in parse_qs(e.get("query") or "").get("page", [])}
+        pages = {v for e in window for v in _pages(e)}
         busiest = max(p.hour_bytes.values(), default=0)
         signals = {
             "new_ip": any(ip not in p.ips for ip in ips),

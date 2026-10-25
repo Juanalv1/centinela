@@ -1,7 +1,18 @@
-"""Victim adapters: the executor's least-privilege HTTP and Postgres channels."""
+"""Victim adapters: the executor's least-privilege HTTP and Postgres channels, and the
+mapping of the victim's /access-log rows to normalized access events."""
 from __future__ import annotations
 
 import httpx
+
+from domain.access import VICTIM_SOURCE, AccessEvent, page_of
+
+
+def from_victim_row(row: dict) -> AccessEvent | None:
+    """The demo victim's /access-log row as an event; rows not made with a key are dropped."""
+    if row.get("api_key_id") is None:
+        return None
+    return AccessEvent(VICTIM_SOURCE, row["id"], float(row["ts"]), row["api_key_id"], row["ip"], row["path"],
+                       row["status"], row.get("bytes") or 0, row.get("method"), None, page_of(row.get("query")))
 
 
 class VictimClient:

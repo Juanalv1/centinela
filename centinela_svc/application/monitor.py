@@ -11,7 +11,8 @@ import os
 import httpx
 
 from application.executor import Executor
-from application.ports import ReasonerPort
+from application.ports import ReasonerPort, VictimRowMapper
+from domain.access import VICTIM_SOURCE, AccessEvent
 from domain.history import replay
 from domain.keywatch import KeyWatch
 from domain.model import Decision, Proposal, Target, seed_ids
@@ -82,12 +83,14 @@ class Baseline:
 
 class Monitor:
     def __init__(self, victim_url: str, poll_s: float, reasoner: ReasonerPort,
-                 executor: Executor, http: httpx.AsyncClient) -> None:
+                 executor: Executor, http: httpx.AsyncClient,
+                 victim_events: VictimRowMapper | None = None) -> None:
         self.victim_url = victim_url.rstrip("/")
         self.poll_s = poll_s
         self.reasoner = reasoner
         self.executor = executor
         self.http = http
+        self.victim_events = victim_events  # without it the victim's access log is not read
         self.samples: deque[dict] = deque(maxlen=120)
         self.latest: dict | None = None
         self.clock_offset = 0.0  # local_time - victim_time
@@ -105,9 +108,10 @@ class Monitor:
         self._hot_reasoned: set[tuple[int, float]] = set()  # (pid, create_time) already re-evaluated
         self.keywatch = KeyWatch(KEY_WINDOW_S, float(os.environ.get("LAB_TZ_OFFSET_HOURS", "-4")))
         self.key_activity: list[dict] = []
-        self._keys_enabled = True  # turned off when the victim has no case-2 database
+        self._keys_enabled = victim_events is not None  # turned off when the victim has no case-2 database
         self._log_after = 0
         self._keys: dict[int, dict] = {}
+        self._labels: dict[int, str] = {}  # labels carried by events from sources other than the victim
         self._keys_at = 0.0
         self._key_reasoned_at: dict[int, float] = {}
         self._key_reasoned_on: dict[int, tuple[int, int, int]] = {}  # (score, pages, requests) last shown
@@ -136,7 +140,19 @@ class Monitor:
         for entry in entries:
             data = entry.get("data")
             if entry.get("kind") == "key_feedback" and isinstance(data, dict):
-                self.keywatch.learn(data["key_id"], data.get("entries") or [])
+                # rows audited before events had a source all came from the victim
+                rows = [{**e, "source": e.get("source") or VICTIM_SOURCE} for e in data.get("entries") or []]
+                self.keywatch.learn(data["key_id"], rows)
+
+    def feed(self, events: list[AccessEvent], now: float) -> int:
+        """The one path from any source into the per-key baseline. Returns how many events were new."""
+        for e in events:
+            if e.key_label:
+                self._labels[e.key_id] = e.key_label
+        return self.keywatch.ingest([e.entry() for e in events], now)
+
+    def _label(self, key: int) -> str | None:
+        return self._keys.get(key, {}).get("label") or self._labels.get(key)
 
     async def run(self) -> None:
         while True:
@@ -202,7 +218,7 @@ class Monitor:
                 if not entries:
                     break
                 self._log_after = entries[-1]["id"]
-                self.keywatch.ingest(entries, victim_now)
+                self.feed([ev for ev in map(self.victim_events, entries) if ev is not None], victim_now)
             if now - self._keys_at >= KEY_STATE_S:
                 state = (await self.http.get(f"{self.victim_url}/security-state", timeout=10)).json()
                 self._keys = {k["id"]: k for k in state.get("api_keys", [])}
@@ -210,12 +226,7 @@ class Monitor:
         except (httpx.HTTPError, ValueError, KeyError) as exc:
             log.warning("key watch failed: %s", exc)
             return set()
-        active = {k for k, meta in self._keys.items() if meta.get("status") == "active"} if self._keys else None
-        flags = self.keywatch.evaluate(victim_now, active)
-        for flag in flags:
-            meta = self._keys.get(flag["key_id"], {})
-            flag.update({k: meta.get(k) for k in ("label", "username", "role", "protected")})
-        self.key_activity = flags[:3]
+        self.key_activity = self.evaluate_keys(victim_now)[:3]
         metrics["key_activity"] = self.key_activity
         due = set()
         for f in self.key_activity:
@@ -228,6 +239,17 @@ class Monitor:
                 self._key_reasoned_at[key] = now
                 self._key_reasoned_on[key] = seen
         return due
+
+    def evaluate_keys(self, now: float) -> list[dict]:
+        """Flagged keys with their label. Skips only keys the victim reports as not active:
+        keys seen by other sources are not in /security-state and are still judged."""
+        inactive = {k for k, meta in self._keys.items() if meta.get("status") != "active"}
+        flags = self.keywatch.evaluate(now, set(self.keywatch.recent) - inactive)
+        for flag in flags:
+            meta = self._keys.get(flag["key_id"], {})
+            flag.update({k: meta.get(k) for k in ("username", "role", "protected")})
+            flag["label"] = self._label(flag["key_id"])
+        return flags
 
     async def _reason(self, metrics: dict) -> None:
         self.reasoner_busy = True
@@ -308,7 +330,7 @@ class Monitor:
             meta = self._keys.get(key, {})
             state = ("revoked" if meta.get("status") == "revoked"
                      else "suspicious" if row["flagged"] else "active")
-            out.append({**row, "label": meta.get("label"), "protected": meta.get("protected"),
+            out.append({**row, "label": self._label(key), "protected": meta.get("protected"),
                         "state": state, "analysis": self._key_analysis(key)})
         return out
 
@@ -325,9 +347,9 @@ class Monitor:
             return None
         window = self.keywatch.recent.get(key, [])
         self.executor.audit.append("key_feedback", {
-            "key_id": key, "label": self._keys.get(key, {}).get("label"), "by": by,
+            "key_id": key, "label": self._label(key), "by": by,
             "score": row["score"], "signals": row["signals"],
-            "entries": [{k: e.get(k) for k in ("id", "ts", "ip", "path", "bytes")} for e in window],
+            "entries": [{k: e.get(k) for k in ("source", "id", "ts", "ip", "path", "bytes")} for e in window],
         })
         learned = self.keywatch.learn_window(key, victim_now)
         self.key_activity = [f for f in self.key_activity if f["key_id"] != key]

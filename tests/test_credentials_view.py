@@ -8,7 +8,7 @@ from fastapi.testclient import TestClient
 
 from conftest import SVC, load_module
 from test_keywatch import NOW, entry, office_history, watch_with
-from test_monitor_keys import ATTACK, KEYS, FakeExecutor, Victim, _history, domain
+from test_monitor_keys import ATTACK, KEYS, FakeExecutor, Victim, _history, domain, from_victim_row
 
 kw = load_module("centinela_keywatch_creds", SVC / "domain" / "keywatch.py")
 monitor_mod = load_module("centinela_monitor_creds", SVC / "application" / "monitor.py")
@@ -65,7 +65,7 @@ class KeyReasoner:
 
 async def _monitor(victim, reasoner, ticks=1):
     async with httpx.AsyncClient(transport=httpx.MockTransport(victim)) as http:
-        mon = monitor_mod.Monitor("http://victim", 2, reasoner, FakeExecutor(), http)
+        mon = monitor_mod.Monitor("http://victim", 2, reasoner, FakeExecutor(), http, victim_events=from_victim_row)
         mon._last_reason_at = float("inf")
         for _ in range(ticks):
             await mon.tick()
@@ -185,7 +185,7 @@ class AuditExecutor(FakeExecutor):
 
 async def _monitor_with(victim, executor, ticks=1):
     async with httpx.AsyncClient(transport=httpx.MockTransport(victim)) as http:
-        mon = monitor_mod.Monitor("http://victim", 2, KeyReasoner(), executor, http)
+        mon = monitor_mod.Monitor("http://victim", 2, KeyReasoner(), executor, http, victim_events=from_victim_row)
         mon._last_reason_at = float("inf")
         for _ in range(ticks):
             await mon.tick()
@@ -202,7 +202,7 @@ def test_mark_normal_learns_the_window_and_audits_it_without_touching_the_key():
     assert result == {"key_id": 2, "learned": 20}
     [(kind, data)] = [a for a in executor.appended if a[0] == "key_feedback"]
     assert data["key_id"] == 2 and data["by"] == "owner@example.com" and len(data["entries"]) == 20
-    assert set(data["entries"][0]) == {"id", "ts", "ip", "path", "bytes"}
+    assert set(data["entries"][0]) == {"source", "id", "ts", "ip", "path", "bytes"}
     assert victim.calls == calls  # nothing sent to the victim: revocation is never undone here
     row = _by_id(mon.credentials())[2]
     assert row["flagged"] is False and row["state"] == "active"
@@ -226,7 +226,7 @@ def test_feedback_survives_a_restart_through_the_audit_log():
     async def restarted():
         again = [dict(e, id=e["id"] + 1000, ts=e["ts"] + 60) for e in ATTACK]
         async with httpx.AsyncClient(transport=httpx.MockTransport(Victim(_history() + again))) as http:
-            fresh = monitor_mod.Monitor("http://victim", 2, KeyReasoner(), AuditExecutor(), http)
+            fresh = monitor_mod.Monitor("http://victim", 2, KeyReasoner(), AuditExecutor(), http, victim_events=from_victim_row)
             fresh._last_reason_at = float("inf")
             fresh.restore(audit)
             await fresh.tick()

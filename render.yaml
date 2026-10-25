@@ -76,6 +76,9 @@ services:
         sync: false
       - key: APPROVER_TOKEN
         sync: false
+      # Push ingestion (POST /api/ingest/access, forward_nginx.py). Unset: disabled.
+      - key: INGEST_TOKEN
+        sync: false
       - key: OFFICE_CIDR
         value: 203.0.113.0/24
 

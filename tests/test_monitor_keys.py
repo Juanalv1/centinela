@@ -7,6 +7,7 @@ import httpx
 from conftest import SVC, load_module
 
 monitor_mod = load_module("centinela_monitor_keys", SVC / "application" / "monitor.py")
+from adapters.victim import from_victim_row  # noqa: E402
 from domain import model as domain  # noqa: E402
 reasoner_mod = load_module("centinela_reasoner_keys", SVC / "adapters" / "reasoner.py")
 
@@ -79,7 +80,7 @@ class FakeExecutor:
 async def _run(victim, ticks=1):
     reasoner = FakeReasoner()
     async with httpx.AsyncClient(transport=httpx.MockTransport(victim)) as http:
-        mon = monitor_mod.Monitor("http://victim", 2, reasoner, FakeExecutor(), http)
+        mon = monitor_mod.Monitor("http://victim", 2, reasoner, FakeExecutor(), http, victim_events=from_victim_row)
         mon._last_reason_at = float("inf")  # silence the heartbeat: only key flags may wake the reasoner
         for _ in range(ticks):
             await mon.tick()
@@ -133,7 +134,7 @@ def test_a_process_crossing_the_sustained_cpu_mark_wakes_the_reasoner_once():
     async def run():
         reasoner = FakeReasoner()
         async with httpx.AsyncClient(transport=httpx.MockTransport(Hot([], access_status=503))) as http:
-            mon = monitor_mod.Monitor("http://victim", 2, reasoner, FakeExecutor(), http)
+            mon = monitor_mod.Monitor("http://victim", 2, reasoner, FakeExecutor(), http, victim_events=from_victim_row)
             mon._known_pids = {33}  # already evaluated as a new pid
             mon._last_reason_at = float("inf")
             for t in range(1000, 1050, 5):
@@ -161,7 +162,7 @@ def test_a_flagged_key_is_reevaluated_when_its_window_gets_worse():
     async def run():
         reasoner = FakeReasoner()
         async with httpx.AsyncClient(transport=httpx.MockTransport(victim)) as http:
-            mon = monitor_mod.Monitor("http://victim", 2, reasoner, FakeExecutor(), http)
+            mon = monitor_mod.Monitor("http://victim", 2, reasoner, FakeExecutor(), http, victim_events=from_victim_row)
             mon._last_reason_at = float("inf")
             for log in (ATTACK[:2], ATTACK[:2], ATTACK[:8], ATTACK[:8]):
                 victim.log = _history() + log

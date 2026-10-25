@@ -2,11 +2,13 @@
 
 Only boundaries with a second implementation or a test fake get a Protocol:
 the reasoner, the victim (HTTP kill channel and case-2 database) and the audit log.
+`VictimRowMapper` is the victim's access-log adapter, injected so this layer never imports it.
 """
 from __future__ import annotations
 
 from typing import Protocol
 
+from domain.access import AccessEvent
 from domain.model import Proposal
 
 
@@ -34,3 +36,9 @@ class AuditPort(Protocol):
     entries: list[dict]
 
     def append(self, kind: str, data: dict) -> dict: ...
+
+
+class VictimRowMapper(Protocol):
+    """Maps one victim /access-log row to a normalized event (None for rows made without a key)."""
+
+    def __call__(self, row: dict) -> AccessEvent | None: ...

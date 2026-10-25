@@ -1,8 +1,10 @@
-"""Demo API: monitor state, approvals, attacks, audience and TTS."""
+"""Demo API: monitor state, approvals, attacks, audience, TTS and access-event ingestion."""
 from __future__ import annotations
 
 import hmac
+import json
 import logging
+import time
 
 import httpx
 from fastapi import FastAPI, Header, Request
@@ -10,8 +12,10 @@ from fastapi.responses import JSONResponse, Response
 from pydantic import BaseModel
 
 from application.audience import RateLimited, normalize_handle
+from domain.access import SOURCE_RE, VICTIM_SOURCE, InvalidEvent, parse_event
 from domain.model import Proposal, Target
 from web.auth import Guards
+from web.config import INGEST_MAX_BYTES, INGEST_MAX_EVENTS
 from web.context import AppContext
 
 log = logging.getLogger("centinela")
@@ -32,6 +36,16 @@ class ParticipateRequest(BaseModel):
 
 class ApprovalRequest(BaseModel):
     approve: bool
+
+
+async def _read_capped(request: Request, limit: int) -> bytes | None:
+    """The request body, or None once it exceeds `limit` bytes (also when chunked)."""
+    body = b""
+    async for chunk in request.stream():
+        body += chunk
+        if len(body) > limit:
+            return None
+    return body
 
 
 def register(router: FastAPI, ctx: AppContext, guards: Guards) -> None:
@@ -232,3 +246,42 @@ def register(router: FastAPI, ctx: AppContext, guards: Guards) -> None:
         if result is None:
             return JSONResponse({"error": "key is not flagged"}, status_code=409)
         return {"feedback": result}
+
+    # --- push ingestion (any source: proxy, app middleware, the nginx forwarder) ---
+
+    @router.post("/api/ingest/access")
+    async def ingest_access(request: Request, authorization: str | None = Header(default=None)):
+        """A batch of access events, metadata only. All or nothing: one bad event rejects the batch.
+        Idempotent: events already seen (same source and id) are not counted again."""
+        ingest_token = settings.ingest_token
+        if not ingest_token:
+            return JSONResponse({"error": "ingestion is disabled"}, status_code=404)
+        scheme, _, token = (authorization or "").partition(" ")
+        if scheme.lower() != "bearer" or not hmac.compare_digest(token.strip().encode(), ingest_token.encode()):
+            return JSONResponse({"error": "unauthorized"}, status_code=401)
+        body = await _read_capped(request, INGEST_MAX_BYTES)
+        if body is None:
+            return JSONResponse({"error": f"body over {INGEST_MAX_BYTES} bytes"}, status_code=413)
+        try:
+            payload = json.loads(body)
+        except ValueError:
+            return JSONResponse({"error": "body is not JSON"}, status_code=400)
+        raw = payload.get("events") if isinstance(payload, dict) else None
+        if not isinstance(raw, list):
+            return JSONResponse({"error": "expected {\"source\": ..., \"events\": [...]}"}, status_code=422)
+        if len(raw) > INGEST_MAX_EVENTS:
+            return JSONResponse({"error": f"more than {INGEST_MAX_EVENTS} events"}, status_code=413)
+        source = payload.get("source")
+        if not isinstance(source, str) or not SOURCE_RE.match(source) or source == VICTIM_SOURCE:
+            # the demo victim's adapter owns its namespace: pushed ids must never shadow its rows
+            return JSONResponse({"error": "source: letters, digits, '.', '_' or '-'; not 'victim'"},
+                                status_code=422)
+        events = []
+        for i, item in enumerate(raw):
+            try:
+                events.append(parse_event(item, source))
+            except InvalidEvent as exc:
+                return JSONResponse({"error": str(exc), "index": i}, status_code=422)
+        monitor = ctx.monitor
+        new = monitor.feed(events, time.time() - monitor.clock_offset)  # judged on the monitor's clock
+        return {"received": len(events), "new": new}

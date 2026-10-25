@@ -13,7 +13,7 @@ from adapters.audience_store import AudienceStore
 from adapters.audit import AuditLog
 from adapters.members import MemberStore
 from adapters.reasoner import ClaudeReasoner
-from adapters.victim import VictimClient, VictimDb
+from adapters.victim import VictimClient, VictimDb, from_victim_row
 from application.executor import Executor
 from application.monitor import Monitor
 from web import api, auth, members_routes, pages
@@ -37,7 +37,8 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             db = VictimDb(settings.executor_database_url) if settings.executor_database_url else None
             executor = Executor(VictimClient(settings.victim_url, settings.executor_token, http), audit,
                                 db=db, protected_networks=(settings.office_cidr,))
-            ctx.monitor = monitor = Monitor(settings.victim_url, settings.poll_seconds, reasoner, executor, http)
+            ctx.monitor = monitor = Monitor(settings.victim_url, settings.poll_seconds, reasoner, executor, http,
+                                            victim_events=from_victim_row)
             try:  # a broken history must never keep the service from starting
                 monitor.restore(audit.recent(RESTORE_ENTRIES))
                 if settings.audit_database_url:  # audience history needs the database; JSONL stays in memory

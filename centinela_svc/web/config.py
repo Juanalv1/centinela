@@ -6,6 +6,8 @@ from dataclasses import dataclass, field
 from pathlib import Path
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
+INGEST_MAX_EVENTS = 1000  # per batch pushed to POST /api/ingest/access
+INGEST_MAX_BYTES = 1_000_000  # per request body
 
 
 def load_dotenv(path: Path) -> None:
@@ -30,6 +32,7 @@ class Settings:
     executor_database_url: str | None = None  # least-privilege role, case-2 actions
     office_cidr: str = "203.0.113.0/24"  # never blocked
     approver_token: str = ""  # when set, required to resolve approvals
+    ingest_token: str = ""  # when set, enables POST /api/ingest/access
     tts_voice: str = "es-CL-CatalinaNeural"  # Edge neural voice (fallback)
     eleven_labs_api_key: str = ""  # when set, ElevenLabs is the primary voice
     eleven_labs_voice_id: str = "6Gr4AVmTax1pMJO0lHRK"  # Catalina, Chilean
@@ -62,6 +65,7 @@ class Settings:
             executor_database_url=env("EXECUTOR_DATABASE_URL"),
             office_cidr=env("OFFICE_CIDR", "203.0.113.0/24"),
             approver_token=env("APPROVER_TOKEN", ""),
+            ingest_token=env("INGEST_TOKEN", ""),
             tts_voice=env("TTS_VOICE", "es-CL-CatalinaNeural"),
             eleven_labs_api_key=env("ELEVEN_LABS_API_KEY", ""),
             eleven_labs_voice_id=env("ELEVEN_LABS_VOICE_ID", "6Gr4AVmTax1pMJO0lHRK"),
