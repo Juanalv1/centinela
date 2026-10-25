@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import asyncio
 import hmac
+import html
 import logging
 import os
 import secrets
@@ -19,6 +20,7 @@ from audience import AudienceState, AudienceStore, RateLimited, normalize_handle
 from audit import AuditLog
 from domain import Proposal, Target
 from executor import Executor, VictimClient, VictimDb
+from members import MemberError, MemberStore, ROLES
 from monitor import Monitor
 from reasoner import ClaudeReasoner
 
@@ -59,6 +61,7 @@ GOOGLE_CLIENT_ID = os.environ.get("GOOGLE_CLIENT_ID", "")
 GOOGLE_CLIENT_SECRET = os.environ.get("GOOGLE_CLIENT_SECRET", "")
 SESSION_SECRET = os.environ.get("SESSION_SECRET", "")
 PUBLIC_URL = os.environ.get("PUBLIC_URL", "").rstrip("/")  # behind Cloudflare+Render: builds the redirect URI
+# Bootstrap seed only: when the members table is empty these emails become the first admins.
 ADMIN_EMAILS = {e.strip().lower() for e in os.environ.get("ADMIN_EMAILS", "").split(",") if e.strip()}
 AUTH_CONFIGURED = bool(GOOGLE_CLIENT_ID and GOOGLE_CLIENT_SECRET and SESSION_SECRET)
 GOOGLE_AUTH_URL = "https://accounts.google.com/o/oauth2/v2/auth"
@@ -74,13 +77,15 @@ LEGACY_PANEL = _legacy_path.read_text(encoding="utf-8") if _legacy_path.exists()
 PORTAL = (_HERE / "portal.html").read_text(encoding="utf-8")
 DASHBOARD = (_HERE / "dashboard.html").read_text(encoding="utf-8")
 LOGIN = (_HERE / "login.html").read_text(encoding="utf-8")
+NO_ACCESS = (_HERE / "noaccess.html").read_text(encoding="utf-8")
 monitor: Monitor | None = None
+members: MemberStore | None = None  # only exists when Google auth is configured
 audience = AudienceState()  # in-memory; one process serves the live demo
 
 
 @asynccontextmanager
 async def lifespan(_app: FastAPI):
-    global monitor
+    global monitor, members
     async with httpx.AsyncClient() as http:
         audit = AuditLog(AUDIT_PATH, dsn=AUDIT_DATABASE_URL)
         reasoner = ClaudeReasoner(os.environ.get("ANTHROPIC_API_KEY"), MODEL)
@@ -95,6 +100,12 @@ async def lifespan(_app: FastAPI):
                 audience.restore()
         except Exception:
             logging.getLogger("centinela").exception("history restore failed; starting empty")
+        if AUTH_CONFIGURED:  # a failed bootstrap must not keep the service from starting; reads fail closed
+            members = MemberStore(AUDIT_DATABASE_URL, audit)
+            try:
+                members.bootstrap(ADMIN_EMAILS)
+            except Exception:
+                log.exception("member bootstrap failed")
         task = asyncio.create_task(monitor.run())
         audit.append("startup", {"victim_url": VICTIM_URL, "model": MODEL, "poll_s": POLL_SECONDS})
         try:
@@ -130,8 +141,19 @@ def _session_user(request: Request) -> dict | None:
     return user if isinstance(user, dict) and user.get("email") else None
 
 
+def _role(user: dict | None) -> str | None:
+    """The member's role, read from the store on every request (never cached in the cookie)."""
+    if not user or members is None:
+        return None
+    try:
+        return members.role_of(str(user["email"]))
+    except MemberError:
+        log.warning("member lookup failed; denying access")
+        return None  # fail closed
+
+
 def _is_admin(user: dict | None) -> bool:
-    return bool(user) and str(user["email"]).lower() in ADMIN_EMAILS
+    return _role(user) == "admin"
 
 
 def _redirect_uri(request: Request) -> str:
@@ -176,15 +198,33 @@ def legacy_panel() -> str:
 @app.get("/dashboard", response_class=HTMLResponse)
 def dashboard(request: Request):
     """Client-facing security dashboard; requires a Google session when auth is configured."""
-    if AUTH_CONFIGURED and _session_user(request) is None:
-        return RedirectResponse("/login", status_code=303)
+    if AUTH_CONFIGURED:
+        user = _session_user(request)
+        if user is None:
+            return RedirectResponse("/login", status_code=303)
+        if _role(user) is None:
+            return RedirectResponse("/sin-acceso", status_code=303)
     return HTMLResponse(DASHBOARD)
+
+
+@app.get("/sin-acceso", response_class=HTMLResponse)
+def no_access(request: Request):
+    """A verified Google account that is not a member: tells them to ask an admin for an invitation."""
+    if not AUTH_CONFIGURED:
+        return RedirectResponse("/dashboard", status_code=303)
+    user = _session_user(request)
+    if user is None:
+        return RedirectResponse("/login", status_code=303)
+    if _role(user) is not None:
+        return RedirectResponse("/dashboard", status_code=303)
+    return HTMLResponse(NO_ACCESS.replace("{{email}}", html.escape(str(user["email"]))), status_code=403,
+                        headers={"Cache-Control": "no-store"})
 
 
 @app.get("/login", response_class=HTMLResponse)
 def login(request: Request):
     if not AUTH_CONFIGURED or _session_user(request) is not None:
-        return RedirectResponse("/dashboard", status_code=303)
+        return RedirectResponse("/dashboard", status_code=303)  # /dashboard routes non-members onward
     return HTMLResponse(LOGIN)
 
 
@@ -236,7 +276,7 @@ async def auth_callback(request: Request, code: str | None = None, state: str | 
     request.session["user"] = {"email": str(profile["email"]).lower(),
                                "name": str(profile.get("name") or profile["email"]),
                                "picture": str(profile.get("picture") or "")}
-    return RedirectResponse("/dashboard", status_code=303)
+    return RedirectResponse("/dashboard" if _role(request.session["user"]) else "/sin-acceso", status_code=303)
 
 
 @app.post("/logout")
@@ -254,7 +294,9 @@ def api_me(request: Request) -> JSONResponse:
         body = {"auth": "demo", "user": None, "can_approve": not APPROVER_TOKEN}
     else:
         user = _session_user(request)
-        body = {"auth": "google", "can_approve": _is_admin(user),
+        role = _role(user)
+        body = {"auth": "google", "member": role is not None, "role": role,
+                "can_approve": role == "admin", "can_manage": role == "admin",
                 "user": {k: user.get(k, "") for k in ("name", "email", "picture")} if user else None}
     return JSONResponse(body, headers={"Cache-Control": "no-store"})
 
@@ -446,10 +488,94 @@ async def resolve_approval(proposal_id: int, req: ApprovalRequest, request: Requ
             if user is None:
                 return JSONResponse({"error": "unauthorized"}, status_code=401)
             if not _is_admin(user) or not _csrf_ok(request):
-                return JSONResponse({"error": "forbidden"}, status_code=403)
+                return JSONResponse({"error": "forbidden"}, status_code=403)  # viewers and non-members
         elif APPROVER_TOKEN:  # demo mode: legacy behavior, token only
             return JSONResponse({"error": "unauthorized"}, status_code=401)
     decision = await monitor.resolve_approval(proposal_id, req.approve)
     if decision is None:
         return JSONResponse({"error": "no pending approval with that id"}, status_code=404)
     return {"decision": decision}
+
+
+# --- members (admin only; the executor / AI path has no route here) ---------
+
+MEMBER_ERRORS = {
+    "invalid": (400, "Correo o rol inválido."),
+    "exists": (409, "Esa persona ya es miembro."),
+    "not_found": (404, "Esa persona no es miembro."),
+    "last_admin": (409, "No se puede quitar ni degradar al último administrador."),
+    "self": (409, "No puedes cambiar tu propio rol ni quitarte a ti mismo."),
+    "unavailable": (503, "No se pudo guardar el cambio: base de datos no disponible."),
+}
+
+
+def _member_error(exc: MemberError) -> JSONResponse:
+    status, message = MEMBER_ERRORS[exc.code]
+    return JSONResponse({"error": message, "code": exc.code}, status_code=status)
+
+
+def _admin_gate(request: Request, write: bool) -> tuple[str | None, JSONResponse | None]:
+    """(actor email, None) for an admin session, else (None, error response). Writes also need CSRF."""
+    if not AUTH_CONFIGURED or members is None:
+        return None, JSONResponse({"error": "members are disabled in demo mode"}, status_code=404)
+    user = _session_user(request)
+    if user is None:
+        return None, JSONResponse({"error": "unauthorized"}, status_code=401)
+    if not _is_admin(user) or (write and not _csrf_ok(request)):
+        return None, JSONResponse({"error": "forbidden"}, status_code=403)
+    return str(user["email"]).lower(), None
+
+
+class MemberIn(BaseModel):
+    email: str
+    role: str
+
+
+class RoleIn(BaseModel):
+    role: str
+
+
+@app.get("/api/members")
+def list_members(request: Request) -> JSONResponse:
+    """Admins only: the team list is access-control data, viewers do not need it."""
+    _, denied = _admin_gate(request, write=False)
+    if denied:
+        return denied
+    try:
+        return JSONResponse({"members": members.list(), "roles": list(ROLES)}, headers={"Cache-Control": "no-store"})
+    except MemberError as exc:
+        return _member_error(exc)
+
+
+@app.post("/api/members")
+def invite_member(req: MemberIn, request: Request) -> JSONResponse:
+    actor, denied = _admin_gate(request, write=True)
+    if denied:
+        return denied
+    try:
+        return JSONResponse({"member": members.add(req.email, req.role, actor)}, status_code=201)
+    except MemberError as exc:
+        return _member_error(exc)
+
+
+@app.patch("/api/members/{email}")
+def change_member_role(email: str, req: RoleIn, request: Request) -> JSONResponse:
+    actor, denied = _admin_gate(request, write=True)
+    if denied:
+        return denied
+    try:
+        return JSONResponse({"member": members.set_role(email, req.role, actor)})
+    except MemberError as exc:
+        return _member_error(exc)
+
+
+@app.delete("/api/members/{email}")
+def remove_member(email: str, request: Request) -> JSONResponse:
+    actor, denied = _admin_gate(request, write=True)
+    if denied:
+        return denied
+    try:
+        members.remove(email, actor)
+        return JSONResponse({"ok": True})
+    except MemberError as exc:
+        return _member_error(exc)

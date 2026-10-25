@@ -92,6 +92,12 @@ ul.log{list-style:none;margin:10px 0 0;padding:0;font-family:var(--mono);font-si
 .btns[disabled]{opacity:.5;cursor:default}
 .acts{display:flex;gap:8px}
 .cta-side{margin-top:auto}
+.inv{display:flex;flex-wrap:wrap;gap:12px;align-items:flex-end;margin-top:14px}
+.inv .f{display:flex;flex-direction:column;gap:4px}
+.inv label{font-size:13px;color:var(--muted)}
+.inv input,.inv select,td select{min-height:44px;padding:0 10px;border:1px solid var(--line);border-radius:6px;background:var(--bg);color:var(--fg);font-family:var(--mono);font-size:13px}
+.inv input{min-width:260px}
+.err{color:var(--magenta)}
 </style>
 <body>
 <div class="shell">
@@ -157,6 +163,20 @@ ul.log{list-style:none;margin:10px 0 0;padding:0;font-family:var(--mono);font-si
       <h2 id="h-apr">Aprobaciones</h2>
       <div class="card"><div class="tw" id="apprs"></div>
         <p class="note" id="apprNote"></p><p class="note" id="apprMsg" role="status"></p></div>
+    </section>
+
+    <section id="equipo" aria-labelledby="h-eq" hidden>
+      <h2 id="h-eq">Equipo</h2>
+      <div class="card"><div class="tw" id="team"></div>
+        <form class="inv" id="invite" autocomplete="off">
+          <div class="f"><label for="invEmail">Correo de Google</label>
+            <input id="invEmail" name="email" type="email" required maxlength="254"></div>
+          <div class="f"><label for="invRole">Rol</label>
+            <select id="invRole" name="role"></select></div>
+          <button class="btns ok" type="submit">Invitar</button>
+        </form>
+        <p class="note" id="teamMsg" role="status"></p>
+        <p class="note">Solo las personas invitadas entran al panel. La app de Google está en modo de prueba: además de invitar aquí, agrega el correo como usuario de prueba en la consola de Google.</p></div>
     </section>
 
     <section id="politica" aria-labelledby="h-pol">
@@ -256,7 +276,7 @@ const Agent = (() => {
   const $ = id => document.getElementById(id);
   const SVGNS = 'http://www.w3.org/2000/svg';
   const POLL_MS = 2000;
-  let ME = {auth: 'demo', user: null, can_approve: false};
+  let ME = {auth: 'demo', user: null, can_approve: false, can_manage: false};
   let LIVE = null, STATS = null, STATE = null;
   const cpuHist = [], busy = new Set();
   const NAV = [
@@ -330,6 +350,9 @@ const Agent = (() => {
 
   function buildNav() {
     const ul = $('nav');
+    if (ME.can_manage && !NAV.some(n => n[0] === 'equipo')) {
+      NAV.splice(3, 0, ['equipo', 'Equipo', 'M16 20v-1a4 4 0 0 0-4-4H7a4 4 0 0 0-4 4v1 M9.5 11a3.5 3.5 0 1 0 0-7 3.5 3.5 0 0 0 0 7 M21 20v-1a4 4 0 0 0-3-3.9 M15 4.1a3.5 3.5 0 0 1 0 6.8']);
+    }
     NAV.forEach(([id, label, path], i) => {
       const li = el('li'), a = el('a');
       a.href = id === 'resumen' ? '#' : '#' + id;
@@ -468,7 +491,7 @@ const Agent = (() => {
     clear($('apprs')).appendChild(table(apHeads, apRows, 'Nada pendiente de aprobación.'));
     $('apprs').querySelectorAll('td:nth-child(5)').forEach(td => td.classList.add('wrap'));
     $('apprNote').textContent = ME.can_approve ? 'Tu cuenta puede aprobar o rechazar acciones de alto impacto.'
-      : ME.auth === 'google' ? 'Solo lectura: tu cuenta no está en la lista de administradores que pueden aprobar.'
+      : ME.auth === 'google' ? 'Solo lectura: tu cuenta tiene el rol de lector; solo los administradores pueden aprobar.'
       : 'Solo lectura. Las acciones de alto impacto se resuelven por la API con el token de aprobador (cabecera X-Approver-Token); esta página no guarda ese token.';
 
     // audit log
@@ -507,6 +530,57 @@ const Agent = (() => {
     busy.delete(id); poll();
   }
 
+  const ROLE_LABEL = {admin: 'Administrador', viewer: 'Lector'};
+  const dateOf = ts => ts ? new Date(ts * 1000).toLocaleDateString() : 'sin datos';
+  const teamMsg = text => { $('teamMsg').textContent = text || ''; $('teamMsg').className = 'note err'; };
+
+  async function memberCall(method, email, body) {
+    teamMsg('');
+    try {
+      const r = await fetch('/api/members' + (email ? '/' + encodeURIComponent(email) : ''), {
+        method,
+        headers: {'Content-Type': 'application/json', 'X-Requested-With': 'centinela'},
+        body: body ? JSON.stringify(body) : undefined,
+      });
+      if (!r.ok) {
+        let m = 'No se pudo completar (HTTP ' + r.status + ').';
+        try { m = (await r.json()).error || m; } catch (e) { /* keep generic message */ }
+        teamMsg(m);
+        return false;
+      }
+      return true;
+    } catch (e) { teamMsg('No se pudo contactar a Centinela.'); return false; }
+  }
+
+  async function loadTeam() {
+    if (!ME.can_manage) return;
+    let data;
+    try { data = await getJson('/api/members'); } catch (e) { teamMsg('No se pudo cargar el equipo.'); return; }
+    const me = (ME.user && ME.user.email || '').toLowerCase();
+    const rows = data.members.map(m => {
+      const own = m.email.toLowerCase() === me;
+      const sel = el('select'); sel.setAttribute('aria-label', 'Rol de ' + m.email); sel.disabled = own;
+      data.roles.forEach(r => { const o = el('option', ROLE_LABEL[r] || r); o.value = r; o.selected = r === m.role; sel.appendChild(o); });
+      sel.addEventListener('change', async () => { await memberCall('PATCH', m.email, {role: sel.value}); loadTeam(); });
+      const del = el('button', 'Quitar', 'btns'); del.type = 'button'; del.disabled = own;
+      del.setAttribute('aria-label', 'Quitar a ' + m.email);
+      del.addEventListener('click', async () => { if (await memberCall('DELETE', m.email)) loadTeam(); });
+      const box = el('div', null, 'acts'); box.appendChild(sel); box.appendChild(del);
+      return [own ? m.email + ' (tú)' : m.email, box, m.added_by, dateOf(m.added_at)];
+    });
+    clear($('team')).appendChild(table(['Correo', 'Rol', 'Invitó', 'Desde'], rows, 'Sin miembros.'));
+    const role = $('invRole');
+    if (!role.options.length) data.roles.forEach(r => { const o = el('option', ROLE_LABEL[r] || r); o.value = r; role.appendChild(o); });
+    role.value = role.value || 'viewer';
+  }
+
+  $('invite').addEventListener('submit', async ev => {
+    ev.preventDefault();
+    if (await memberCall('POST', null, {email: $('invEmail').value, role: $('invRole').value})) {
+      $('invEmail').value = ''; loadTeam();
+    }
+  });
+
   const getJson = async url => { const r = await fetch(url); if (!r.ok) throw new Error('HTTP ' + r.status); return r.json(); };
 
   async function pollAux() {
@@ -529,8 +603,8 @@ const Agent = (() => {
   }
   async function init() {
     try { ME = await getJson('/api/me'); } catch (e) { /* keep read-only demo defaults */ }
-    renderUser(); poll();
+    renderUser(); buildNav(); $('equipo').hidden = !ME.can_manage; loadTeam(); poll();
   }
-  buildNav(); renderPolicy(); init(); setInterval(poll, POLL_MS);
+  renderPolicy(); init(); setInterval(poll, POLL_MS);
 })();
 </script>

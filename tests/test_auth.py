@@ -112,7 +112,8 @@ def test_dashboard_redirects_to_login_without_session(make):
     r = c.get("/dashboard")
     assert r.status_code == 303 and r.headers["location"] == "/login"
     assert "Continuar con Google" in c.get("/login").text
-    assert c.get("/api/me").json() == {"auth": "google", "user": None, "can_approve": False}
+    assert c.get("/api/me").json() == {"auth": "google", "member": False, "role": None, "user": None,
+                                       "can_approve": False, "can_manage": False}
 
 
 def test_public_endpoints_stay_public(make):

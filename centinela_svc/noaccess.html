@@ -1,0 +1,40 @@
+<!doctype html>
+<html lang="es">
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<title>Centinela · Sin acceso</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Urbanist:wght@300..800&family=JetBrains+Mono:wght@400;700&display=swap">
+<style>
+:root{
+  --bg:#111010; --panel:#1a1919; --line:#2c2a2a; --fg:#f2f2f2; --muted:#a3a0a0;
+  --yellow:#ffdd00; --magenta:#e53aa3;
+  --display:"Urbanist",system-ui,sans-serif;
+  --mono:"JetBrains Mono",ui-monospace,Consolas,monospace;
+  color-scheme:dark;
+}
+*{box-sizing:border-box}
+body{background:var(--bg);color:var(--fg);font-family:var(--display);font-size:16px;line-height:1.5;margin:0;min-height:100vh;display:grid;place-items:center;padding:16px}
+:focus-visible{outline:2px solid var(--yellow);outline-offset:3px}
+h1,p,form{margin:0}
+.card{width:100%;max-width:420px;background:var(--panel);border:1px solid var(--line);border-radius:6px;padding:28px 24px;display:flex;flex-direction:column;gap:16px}
+.brand{display:flex;align-items:center;font-size:22px;font-weight:700;letter-spacing:.5px}
+.mark{display:inline-grid;grid-template-columns:8px 8px;gap:2px;margin-right:10px}
+.mark i{width:8px;height:8px;background:var(--yellow);display:block}
+.mark i:nth-child(2){background:var(--magenta)}
+h1{font-size:20px;font-weight:600}
+.muted{color:var(--muted);font-size:14px}
+.who{font-family:var(--mono);font-size:14px;overflow-wrap:anywhere;border:1px solid var(--line);border-radius:6px;padding:10px 12px}
+.btn{display:flex;align-items:center;justify-content:center;min-height:48px;width:100%;background:var(--yellow);color:#111;border:1px solid var(--yellow);border-radius:6px;font-family:var(--mono);font-size:14px;font-weight:700;text-decoration:none;cursor:pointer}
+.btn.alt{background:transparent;color:var(--fg);border-color:var(--line)}
+.btn.alt:hover{border-color:var(--fg)}
+</style>
+<body>
+<main class="card">
+  <div class="brand"><span class="mark" aria-hidden="true"><i></i><i></i><i></i><i></i></span>Centinela</div>
+  <h1>Sin acceso</h1>
+  <p class="muted">Esta cuenta de Google todavía no tiene una invitación. Pide a un administrador de tu equipo que te invite.</p>
+  <p class="who">{{email}}</p>
+  <a class="btn" href="/auth/google">Usar otra cuenta</a>
+  <form method="post" action="/logout"><button class="btn alt" type="submit">Cerrar sesión</button></form>
+</main>
