@@ -1,13 +1,17 @@
 """behavioral-signals A2: the monitor reads the victim's access log and wakes the reasoner on a flagged key."""
 import asyncio
+import dataclasses
+import time
 from datetime import datetime, timedelta, timezone
 
 import httpx
+import pytest
 
 from conftest import SVC, load_module
 
 monitor_mod = load_module("centinela_monitor_keys", SVC / "application" / "monitor.py")
 from adapters.victim import from_victim_row  # noqa: E402
+from application.executor import Executor  # noqa: E402
 from domain import model as domain  # noqa: E402
 reasoner_mod = load_module("centinela_reasoner_keys", SVC / "adapters" / "reasoner.py")
 
@@ -80,7 +84,8 @@ class FakeExecutor:
 async def _run(victim, ticks=1):
     reasoner = FakeReasoner()
     async with httpx.AsyncClient(transport=httpx.MockTransport(victim)) as http:
-        mon = monitor_mod.Monitor("http://victim", 2, reasoner, FakeExecutor(), http, victim_events=from_victim_row)
+        mon = monitor_mod.Monitor("http://victim", 2, reasoner, FakeExecutor(), http,
+                                    victim_events=from_victim_row)
         mon._last_reason_at = float("inf")  # silence the heartbeat: only key flags may wake the reasoner
         for _ in range(ticks):
             await mon.tick()
@@ -134,7 +139,8 @@ def test_a_process_crossing_the_sustained_cpu_mark_wakes_the_reasoner_once():
     async def run():
         reasoner = FakeReasoner()
         async with httpx.AsyncClient(transport=httpx.MockTransport(Hot([], access_status=503))) as http:
-            mon = monitor_mod.Monitor("http://victim", 2, reasoner, FakeExecutor(), http, victim_events=from_victim_row)
+            mon = monitor_mod.Monitor("http://victim", 2, reasoner, FakeExecutor(), http,
+                                    victim_events=from_victim_row)
             mon._known_pids = {33}  # already evaluated as a new pid
             mon._last_reason_at = float("inf")
             for t in range(1000, 1050, 5):
@@ -162,7 +168,8 @@ def test_a_flagged_key_is_reevaluated_when_its_window_gets_worse():
     async def run():
         reasoner = FakeReasoner()
         async with httpx.AsyncClient(transport=httpx.MockTransport(victim)) as http:
-            mon = monitor_mod.Monitor("http://victim", 2, reasoner, FakeExecutor(), http, victim_events=from_victim_row)
+            mon = monitor_mod.Monitor("http://victim", 2, reasoner, FakeExecutor(), http,
+                                    victim_events=from_victim_row)
             mon._last_reason_at = float("inf")
             for log in (ATTACK[:2], ATTACK[:2], ATTACK[:8], ATTACK[:8]):
                 victim.log = _history() + log
@@ -174,3 +181,86 @@ def test_a_flagged_key_is_reevaluated_when_its_window_gets_worse():
     reasoner = asyncio.run(run())
     assert len(reasoner.seen) == 2  # first flag, then once more when 6 more pages arrived
     assert reasoner.seen[1]["key_activity"][0]["window"]["requests"] == 8
+
+
+# --- generic-ingestion E4: the key path does not depend on the victim ----------------
+
+class DownVictim:
+    """Every victim endpoint is unreachable."""
+
+    def __init__(self):
+        self.calls: list[str] = []
+
+    def __call__(self, request: httpx.Request) -> httpx.Response:
+        self.calls.append(request.url.path)
+        raise httpx.ConnectError("victim unreachable", request=request)
+
+
+class RevokeReasoner(FakeReasoner):
+    async def propose(self, metrics):
+        self.seen.append(metrics)
+        return domain.Proposal(action="revoke_key", target=domain.Target("key", "2"),
+                               rationale="New network, paginated export.", evidence=[], confidence="high",
+                               source="claude")
+
+
+class RecordingDb:
+    def __init__(self):
+        self.acted: list[tuple] = []
+
+    async def policy(self, action, target_id):
+        return None
+
+    async def act(self, action, value, why):
+        self.acted.append((action, value))
+        return {"revoked": 1}
+
+
+class ListAudit:
+    def __init__(self):
+        self.entries: list[dict] = []
+
+    def append(self, kind, data):
+        self.entries.append({"kind": kind, "data": data})
+        return self.entries[-1]
+
+
+class NoKill:
+    async def kill(self, pid):
+        raise AssertionError("no process action is expected here")
+
+
+def _pushed(rows):
+    return [dataclasses.replace(from_victim_row(r), source="nginx-edge") for r in rows]
+
+
+async def _run_victim_down(reasoner, events, victim_events=None):
+    db = RecordingDb()
+    executor = Executor(NoKill(), ListAudit(), db=db)
+    async with httpx.AsyncClient(transport=httpx.MockTransport(DownVictim())) as http:
+        mon = monitor_mod.Monitor("http://victim", 2, reasoner, executor, http, victim_events=victim_events)
+        mon.clock_offset = time.time() - NOW  # judge on the victim's clock
+        mon.feed(events, now=NOW)
+        with pytest.raises(httpx.ConnectError):  # the loop still records the victim as down
+            await mon.tick()
+        for _ in range(3):
+            await asyncio.sleep(0)
+        return mon, db
+
+
+@pytest.mark.parametrize("victim_events", [None, from_victim_row], ids=["push-only", "victim-adapter"])
+def test_pushed_flags_wake_the_reasoner_and_revoke_while_the_victim_is_down(victim_events):
+    reasoner = RevokeReasoner()
+    mon, db = asyncio.run(_run_victim_down(reasoner, _pushed(_history() + ATTACK), victim_events))
+    [snapshot] = reasoner.seen
+    assert snapshot["processes"] == [] and [f["key_id"] for f in snapshot["key_activity"]] == [2]
+    compact = reasoner_mod.compact_snapshot(snapshot)
+    assert compact["processes"] == [] and compact["host_cpu_percent"] is None
+    assert db.acted == [("revoke_key", "2")]
+    assert mon.decisions[0]["status"] == "executed" and mon.latest is None  # no fake process data
+
+
+def test_a_down_victim_with_nothing_flagged_does_not_wake_the_reasoner():
+    reasoner = RevokeReasoner()
+    asyncio.run(_run_victim_down(reasoner, _pushed(_history())))
+    assert reasoner.seen == []  # no heartbeat on an empty snapshot

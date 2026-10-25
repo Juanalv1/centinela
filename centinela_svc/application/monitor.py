@@ -165,9 +165,35 @@ class Monitor:
             await asyncio.sleep(self.poll_s)
 
     async def tick(self) -> None:
+        """One sample. The key path never depends on the victim: when /metrics fails, keys fed
+        from any source are still judged, and a flagged key still wakes the reasoner with a
+        snapshot that has no processes (nothing invented). The /metrics error is re-raised
+        afterwards so the loop still reports the victim as down."""
+        try:
+            metrics = await self._read_metrics()
+        except Exception:
+            now = time.time()
+            metrics = {"processes": []}  # no process data: never a stale or made-up sample
+            due_keys = await self._watch_keys(metrics, now)
+            if due_keys and not self.reasoner_busy:
+                self._last_reason_at = now
+                asyncio.create_task(self._reason(metrics))
+            elif due_keys:
+                for key in due_keys:  # retry on the next tick
+                    self._key_reasoned_at.pop(key, None)
+                    self._key_reasoned_on.pop(key, None)
+            raise
+        await self._tick_processes(metrics)
+
+    async def _read_metrics(self) -> dict:
         resp = await self.http.get(f"{self.victim_url}/metrics", timeout=10)
         resp.raise_for_status()
         metrics = resp.json()
+        if not isinstance(metrics.get("processes"), list):
+            raise KeyError("processes")
+        return metrics
+
+    async def _tick_processes(self, metrics: dict) -> None:
         now = time.time()
         self.clock_offset = now - metrics.get("server_time", now)
         self.baseline.annotate(metrics, now)
@@ -198,34 +224,14 @@ class Monitor:
             asyncio.create_task(self._reason(metrics))
 
     async def _watch_keys(self, metrics: dict, now: float) -> set[int]:
-        """Feed new access-log lines to the per-key baseline; return keys that should wake the reasoner.
+        """Judge every key fed so far (from the victim or pushed); return keys that should wake the reasoner.
 
-        Never breaks the process loop: a victim without the case-2 database is
-        skipped from then on, and transient errors only log.
+        Never breaks the process loop, and never depends on the victim: its access
+        log and key state are read when available, and flags from other sources are
+        evaluated either way.
         """
-        if not self._keys_enabled:
-            return set()
-        victim_now = metrics.get("server_time", now)
-        try:
-            for _ in range(LOG_PAGES_PER_TICK):
-                resp = await self.http.get(f"{self.victim_url}/access-log",
-                                           params={"after": self._log_after, "limit": 500}, timeout=10)
-                if resp.status_code in (404, 503):
-                    self._keys_enabled = False
-                    return set()
-                resp.raise_for_status()
-                entries = resp.json()["entries"]
-                if not entries:
-                    break
-                self._log_after = entries[-1]["id"]
-                self.feed([ev for ev in map(self.victim_events, entries) if ev is not None], victim_now)
-            if now - self._keys_at >= KEY_STATE_S:
-                state = (await self.http.get(f"{self.victim_url}/security-state", timeout=10)).json()
-                self._keys = {k["id"]: k for k in state.get("api_keys", [])}
-                self._keys_at = now
-        except (httpx.HTTPError, ValueError, KeyError) as exc:
-            log.warning("key watch failed: %s", exc)
-            return set()
+        victim_now = metrics.get("server_time", now - self.clock_offset)
+        await self._read_victim_keys(now, victim_now)
         self.key_activity = self.evaluate_keys(victim_now)[:3]
         metrics["key_activity"] = self.key_activity
         due = set()
@@ -239,6 +245,34 @@ class Monitor:
                 self._key_reasoned_at[key] = now
                 self._key_reasoned_on[key] = seen
         return due
+
+    async def _read_victim_keys(self, now: float, victim_now: float) -> None:
+        """Feed new victim access-log lines and refresh key status/labels from /security-state.
+
+        A victim without the case-2 database is skipped from then on; transient
+        errors only log.
+        """
+        if not self._keys_enabled:
+            return
+        try:
+            for _ in range(LOG_PAGES_PER_TICK):
+                resp = await self.http.get(f"{self.victim_url}/access-log",
+                                           params={"after": self._log_after, "limit": 500}, timeout=10)
+                if resp.status_code in (404, 503):
+                    self._keys_enabled = False
+                    return
+                resp.raise_for_status()
+                entries = resp.json()["entries"]
+                if not entries:
+                    break
+                self._log_after = entries[-1]["id"]
+                self.feed([ev for ev in map(self.victim_events, entries) if ev is not None], victim_now)
+            if now - self._keys_at >= KEY_STATE_S:
+                state = (await self.http.get(f"{self.victim_url}/security-state", timeout=10)).json()
+                self._keys = {k["id"]: k for k in state.get("api_keys", [])}
+                self._keys_at = now
+        except (httpx.HTTPError, ValueError, KeyError) as exc:
+            log.warning("key watch failed: %s", exc)
 
     def evaluate_keys(self, now: float) -> list[dict]:
         """Flagged keys with their label. Skips only keys the victim reports as not active:

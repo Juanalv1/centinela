@@ -65,7 +65,8 @@ class KeyReasoner:
 
 async def _monitor(victim, reasoner, ticks=1):
     async with httpx.AsyncClient(transport=httpx.MockTransport(victim)) as http:
-        mon = monitor_mod.Monitor("http://victim", 2, reasoner, FakeExecutor(), http, victim_events=from_victim_row)
+        mon = monitor_mod.Monitor("http://victim", 2, reasoner, FakeExecutor(), http,
+                                  victim_events=from_victim_row)
         mon._last_reason_at = float("inf")
         for _ in range(ticks):
             await mon.tick()
@@ -185,7 +186,8 @@ class AuditExecutor(FakeExecutor):
 
 async def _monitor_with(victim, executor, ticks=1):
     async with httpx.AsyncClient(transport=httpx.MockTransport(victim)) as http:
-        mon = monitor_mod.Monitor("http://victim", 2, KeyReasoner(), executor, http, victim_events=from_victim_row)
+        mon = monitor_mod.Monitor("http://victim", 2, KeyReasoner(), executor, http,
+                                  victim_events=from_victim_row)
         mon._last_reason_at = float("inf")
         for _ in range(ticks):
             await mon.tick()
@@ -226,7 +228,8 @@ def test_feedback_survives_a_restart_through_the_audit_log():
     async def restarted():
         again = [dict(e, id=e["id"] + 1000, ts=e["ts"] + 60) for e in ATTACK]
         async with httpx.AsyncClient(transport=httpx.MockTransport(Victim(_history() + again))) as http:
-            fresh = monitor_mod.Monitor("http://victim", 2, KeyReasoner(), AuditExecutor(), http, victim_events=from_victim_row)
+            fresh = monitor_mod.Monitor("http://victim", 2, KeyReasoner(), AuditExecutor(), http,
+                                        victim_events=from_victim_row)
             fresh._last_reason_at = float("inf")
             fresh.restore(audit)
             await fresh.tick()
