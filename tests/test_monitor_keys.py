@@ -151,3 +151,25 @@ def test_a_process_crossing_the_sustained_cpu_mark_wakes_the_reasoner_once():
         monitor_mod.time.time = real_time.time
     assert len(reasoner.seen) == 1
     assert reasoner.seen[0]["processes"][0]["cpu_sustained_s"] >= monitor_mod.HOT_TRIGGER_S
+
+
+def test_a_flagged_key_is_reevaluated_when_its_window_gets_worse():
+    """The first look may come after 1-2 requests and propose "none"; a continuing
+    export must reach the reasoner again without waiting for the heartbeat."""
+    victim = Victim(_history() + ATTACK[:2])
+
+    async def run():
+        reasoner = FakeReasoner()
+        async with httpx.AsyncClient(transport=httpx.MockTransport(victim)) as http:
+            mon = monitor_mod.Monitor("http://victim", 2, reasoner, FakeExecutor(), http)
+            mon._last_reason_at = float("inf")
+            for log in (ATTACK[:2], ATTACK[:2], ATTACK[:8], ATTACK[:8]):
+                victim.log = _history() + log
+                await mon.tick()
+                await asyncio.sleep(0)
+                await asyncio.sleep(0)
+        return reasoner
+
+    reasoner = asyncio.run(run())
+    assert len(reasoner.seen) == 2  # first flag, then once more when 6 more pages arrived
+    assert reasoner.seen[1]["key_activity"][0]["window"]["requests"] == 8

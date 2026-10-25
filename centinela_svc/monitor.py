@@ -21,7 +21,8 @@ HEARTBEAT_S = 30.0
 BASELINE_S = float(os.environ.get("BASELINE_SECONDS", "60"))
 KEY_WINDOW_S = float(os.environ.get("KEY_WINDOW_SECONDS", "600"))
 HOT_TRIGGER_S = 20.0    # a process this long above half the CPU budget wakes the reasoner once
-KEY_REASON_S = 60.0     # a key that stays flagged wakes the reasoner again only after this
+KEY_REASON_S = 60.0     # an unchanged flagged key wakes the reasoner again only after this
+KEY_WORSE_REQUESTS = 2  # ...but sooner once its window grows by this many requests
 KEY_STATE_S = 10.0      # how often key status/labels are refreshed from /security-state
 LOG_PAGES_PER_TICK = 10
 
@@ -109,6 +110,7 @@ class Monitor:
         self._keys: dict[int, dict] = {}
         self._keys_at = 0.0
         self._key_reasoned_at: dict[int, float] = {}
+        self._key_reasoned_on: dict[int, tuple[int, int, int]] = {}  # (score, pages, requests) last shown
         self._lock = asyncio.Lock()  # serializes executor use (monitor + simulate)
 
     def restore(self, entries: list[dict]) -> None:
@@ -167,6 +169,7 @@ class Monitor:
             self._pending_new |= due_new  # retry on the next sample
             for key in due_keys:
                 self._key_reasoned_at.pop(key, None)
+                self._key_reasoned_on.pop(key, None)
         elif (due_new or due_keys or due_hot or heartbeat) and not self.reasoner_busy:
             self._last_reason_at = now
             self._hot_reasoned |= due_hot
@@ -208,10 +211,16 @@ class Monitor:
             flag.update({k: meta.get(k) for k in ("label", "username", "role", "protected")})
         self.key_activity = flags[:3]
         metrics["key_activity"] = self.key_activity
-        due = {f["key_id"] for f in self.key_activity
-               if now - self._key_reasoned_at.get(f["key_id"], float("-inf")) >= KEY_REASON_S}
-        for key in due:
-            self._key_reasoned_at[key] = now
+        due = set()
+        for f in self.key_activity:
+            key, seen = f["key_id"], (f["score"], f["signals"]["pages"], f["window"]["requests"])
+            last = self._key_reasoned_on.get(key)
+            worse = last is not None and (seen[0] > last[0] or seen[1] > last[1]
+                                          or seen[2] >= last[2] + KEY_WORSE_REQUESTS)
+            if worse or now - self._key_reasoned_at.get(key, float("-inf")) >= KEY_REASON_S:
+                due.add(key)
+                self._key_reasoned_at[key] = now
+                self._key_reasoned_on[key] = seen
         return due
 
     async def _reason(self, metrics: dict) -> None:
